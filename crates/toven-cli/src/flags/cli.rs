@@ -57,6 +57,12 @@ const MODULES_EXAMPLES: &str = "\
 Examples:
   toven modules              List every discovered module";
 
+/// `groups` verb examples.
+const GROUPS_EXAMPLES: &str = "\
+Examples:
+  toven groups                  List declared groups with their members
+  toven groups --output jsonl   One JSON record per group for scripts";
+
 /// `graph` verb examples.
 const GRAPH_EXAMPLES: &str = "\
 Examples:
@@ -419,6 +425,9 @@ pub enum Command {
     /// List discovered modules.
     #[command(visible_aliases = ["list", "ls"], after_long_help = MODULES_EXAMPLES)]
     Modules,
+    /// List declared `[groups.*]` with their description and members.
+    #[command(after_long_help = GROUPS_EXAMPLES)]
+    Groups,
     /// Project the dependency graph (text or dot).
     #[command(visible_alias = "deps", after_long_help = GRAPH_EXAMPLES)]
     Graph,

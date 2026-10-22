@@ -1,0 +1,25 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "acme-smoke",
+    },
+    "packages/app": {
+      "name": "@acme/app",
+      "version": "1.0.0",
+      "dependencies": {
+        "@acme/core": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@acme/core",
+      "version": "1.0.0",
+    },
+  },
+  "packages": {
+    "@acme/app": ["@acme/app@workspace:packages/app"],
+
+    "@acme/core": ["@acme/core@workspace:packages/core"],
+  }
+}

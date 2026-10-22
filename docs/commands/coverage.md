@@ -65,7 +65,7 @@ line = 95.0
 enforcement = "advisory"
 ```
 
-Rust supports line, function, and region metrics. Go coverage supplies line metrics. Unsupported dimensions do not fail measurement.
+Rust supports line, function, and region metrics. Go coverage supplies line metrics. JavaScript LCOV supplies line and function metrics, and its branch records (`BRDA`) report as `region`. Unsupported dimensions do not fail measurement.
 
 `exclude` and profile `modules` take bare module names, because the block already belongs to one ecosystem. A name that matches no discovered module in that ecosystem fails the run, so a typo cannot silently stop excluding a module. An `ecosystem:name` entry fails with a hint to use the bare name. This check runs before the coverage task, so a typo fails fast without a measurement.
 
@@ -74,6 +74,23 @@ Rust supports line, function, and region metrics. Go coverage supplies line metr
 ### Go profiles
 
 A Go coverage task can be a plain `go test -coverprofile=target/toven/coverage/go-{module.name}.out …`. Go writes import paths (`example.com/repo/svc/x.go`) into the profile. Toven maps them back to repository paths using each discovered module's path from `go.mod`, so files in nested modules are attributed to the right module and matched against changed files. No path rewriting is needed in the task. Go profiles are only credited to Go modules and LCOV profiles only to the others, so a Go module and, say, a command module that share a directory never take each other's files. If two discovered modules declare the same Go module path (for example in two federation members), Toven cannot tell their files apart and the report fails with an error instead of guessing.
+
+### Profile names
+
+The coverage task writes its profiles under `target/toven/coverage/`. A profile's name says which module produced it: either a file `<ecosystem>-<module>.<ext>` (`go-svc.out`, `rust-core.lcov`) or a directory `<ecosystem>-<module>/` whose top-level files are the profiles (`js-packages-app/lcov.info`). Deeper directories are skipped, so runner HTML reports and scratch files do not count. Absolute paths in a profile are made relative to the project root, and a relative path is resolved against the producing module's directory. A profile with an unknown or missing producer keeps its relative paths as repository-relative. Paths that leave the repository are dropped.
+
+### JavaScript profiles
+
+JavaScript test runners write LCOV paths relative to the package they ran in. `toven init` renders a `coverage` task when every package's `test` script runs the same runner, and points it at `target/toven/coverage/js-{module.name}`. Each package's paths then resolve against that package, so a file one package measures in another (`../core/src/index.js`) is credited to the package that owns it, never to the workspace root.
+
+| Runner | Flags the rendered task adds | Notes |
+|---|---|---|
+| Vitest | `--coverage.enabled --coverage.reporter=lcovonly --coverage.reportsDirectory=<dir>` | Needs a coverage provider installed, `@vitest/coverage-v8` or `@vitest/coverage-istanbul`. |
+| Jest | `--coverage --coverageReporters=lcovonly --coverageDirectory=<dir>` | |
+| `bun test` | `--coverage --coverage-reporter=lcov --coverage-dir=<dir>` | Writes no branch records, so there is no `region` metric. |
+| c8 | Not rendered; write the task by hand, for example `c8 --reporter=lcovonly --reports-dir=<dir> node --test` | Wrappers such as c8 are not detected from the `test` script yet. |
+
+Toven recognizes a runner only when the `test` script is a single command (`vitest run`, `jest --ci`, `bun test`); scripts that chain commands get no rendered task. For now one rendered task serves every package, so packages with different runners get none; write the task by hand in that case.
 
 ### Files measured more than once
 

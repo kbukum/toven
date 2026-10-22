@@ -1,0 +1,12 @@
+run test on js-tasks
+skip: js:acme-tasks (test needs script:test)
+skip: js:packages-core (test needs script:test)
+plan: 2 units in 2 waves
+  ok js:packages-core#build
+  ok js:packages-app#test
+summary
+      planned:  2
+          ran:  2
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

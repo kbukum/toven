@@ -24,7 +24,7 @@ cargo test   -p <crate> --all-features -q
 cargo test   -p <crate> --all-features <test-name-filter> -q          # a single test / module
 ```
 
-Crates: `toven-model` (L0), `toven-ports` (L1), `toven-engine` / `toven-rust` / `toven-go` / `toven-command` (L2), `toven-cli` (L3), and dev-only `toven-testkit`.
+Crates: `toven-model` (L0), `toven-ports` (L1), `toven-engine` / `toven-rust` / `toven-go` / `toven-js` / `toven-command` (L2), `toven-cli` (L3), and dev-only `toven-testkit`.
 
 ## Whole-tree gates (fast ones are fine per change)
 

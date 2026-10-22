@@ -20,6 +20,8 @@
 //! - `toolchain` — per-active-workspace `{tool, version}` resolution.
 //! - `schedule` — `RunStrategy` relaxation → federated waves → per-module
 //!   units.
+//! - `prerequisites` — task `depends_on` validation, expansion into the plan,
+//!   and cross-task unit linking.
 //! - `cache` — the content key, lookup port, and per-unit verdict.
 //! - `request` / `host` — PLAN inputs and injected ports.
 
@@ -34,6 +36,7 @@ mod host;
 mod overrides;
 pub(crate) mod ownership;
 mod pipeline;
+mod prerequisites;
 mod request;
 mod schedule;
 mod shared_inputs;
@@ -41,7 +44,8 @@ mod toolchain;
 
 pub use catalog::{EcosystemTasks, TaskCatalog, TaskSummary, task_catalog};
 pub use configure::addressable_task_names;
-pub use front::dependency_graph;
+pub use front::{dependency_graph, group_index};
+pub use graph::{GroupEntry, GroupIndex};
 pub use host::PlanHost;
 pub use pipeline::{FocusedPlan, plan, plan_focused};
 pub use request::{CacheMode, PlanRequest, Selection};

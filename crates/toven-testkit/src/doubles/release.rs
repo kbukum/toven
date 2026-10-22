@@ -48,6 +48,18 @@ pub enum ReleaseCall {
     },
     /// `publish` was called for a module.
     Publish(ModuleRef),
+    /// `finalize_release` was called once for the target, with the modules
+    /// whose manifests were rewritten, in plan order.
+    FinalizeRelease(Vec<ModuleRef>),
+    /// `validate_publication` was called at plan time for a module.
+    ValidatePublication {
+        /// Module whose publication was validated.
+        module: ModuleRef,
+        /// Registry the module resolved to publish to.
+        registry: String,
+        /// Exposure the module resolved to publish with.
+        visibility: Visibility,
+    },
     /// `sbom` was called for a module, with the bounded output directory the
     /// engine passed.
     Sbom {
@@ -76,6 +88,9 @@ struct FakeReleaseState {
     publish_index: usize,
     fail_apply: Option<String>,
     written_paths: Option<Vec<RepoPath>>,
+    finalized_paths: Vec<RepoPath>,
+    fail_finalize: Option<String>,
+    reject_publication: Option<String>,
     fail_package: Option<String>,
     fail_publish: Option<String>,
     fail_version_read: Option<String>,
@@ -102,6 +117,9 @@ impl Default for FakeReleaseTarget {
                 publish_index: 0,
                 fail_apply: None,
                 written_paths: None,
+                finalized_paths: Vec::new(),
+                fail_finalize: None,
+                reject_publication: None,
                 fail_package: None,
                 fail_publish: None,
                 fail_version_read: None,
@@ -204,6 +222,29 @@ impl FakeReleaseTarget {
     #[must_use]
     pub fn with_written_paths(self, paths: Vec<RepoPath>) -> Self {
         self.state().written_paths = Some(paths);
+        self
+    }
+
+    /// Script the shared repo-relative paths `finalize_release` reports
+    /// rewriting (a refreshed lockfile). Defaults to none.
+    #[must_use]
+    pub fn with_finalized_paths(self, paths: Vec<RepoPath>) -> Self {
+        self.state().finalized_paths = paths;
+        self
+    }
+
+    /// Make `finalize_release` fail with a typed internal error.
+    #[must_use]
+    pub fn with_finalize_failure(self, message: impl Into<String>) -> Self {
+        self.state().fail_finalize = Some(message.into());
+        self
+    }
+
+    /// Make `validate_publication` reject every registry publication with a
+    /// typed `release.registry` error.
+    #[must_use]
+    pub fn with_publication_rejection(self, message: impl Into<String>) -> Self {
+        self.state().reject_publication = Some(message.into());
         self
     }
 
@@ -404,6 +445,17 @@ impl ManifestMutator for FakeReleaseTarget {
             ]
         }))
     }
+
+    fn finalize_release(&self, modules: &[&Module]) -> AppResult<Vec<RepoPath>> {
+        self.record(ReleaseCall::FinalizeRelease(
+            modules.iter().map(|module| module.id.clone()).collect(),
+        ));
+        let state = self.state();
+        if let Some(message) = &state.fail_finalize {
+            return Err(fake_error(message));
+        }
+        Ok(state.finalized_paths.clone())
+    }
 }
 
 impl Publisher for FakeReleaseTarget {
@@ -435,6 +487,25 @@ impl Publisher for FakeReleaseTarget {
         state.publish_index = state.publish_index.saturating_add(1);
         drop(state);
         Ok(outcome)
+    }
+
+    fn validate_publication(
+        &self,
+        module: &Module,
+        registry: &str,
+        visibility: Visibility,
+    ) -> AppResult<()> {
+        self.record(ReleaseCall::ValidatePublication {
+            module: module.id.clone(),
+            registry: registry.to_string(),
+            visibility,
+        });
+        self.state()
+            .reject_publication
+            .as_ref()
+            .map_or(Ok(()), |message| {
+                Err(AppError::invalid_input("release.registry", message.clone()))
+            })
     }
 }
 

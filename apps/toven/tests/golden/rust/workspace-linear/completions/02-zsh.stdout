@@ -32,6 +32,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -57,8 +58,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -104,6 +105,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -129,8 +131,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -169,6 +171,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -194,8 +197,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -233,6 +236,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -258,8 +262,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -304,6 +308,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -329,8 +334,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -367,6 +372,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -392,8 +398,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -430,6 +436,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -455,8 +462,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -493,6 +500,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -518,8 +526,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -556,6 +564,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -581,8 +590,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -619,6 +628,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -644,8 +654,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -682,6 +692,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -707,8 +718,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -745,6 +756,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -770,8 +782,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -808,6 +820,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -833,8 +846,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -871,6 +884,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -896,8 +910,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -934,6 +948,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -959,8 +974,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -997,6 +1012,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1022,8 +1038,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1060,6 +1076,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1085,8 +1102,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1123,6 +1140,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1148,8 +1166,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1266,6 +1284,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1291,8 +1310,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1329,6 +1348,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1354,8 +1374,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1393,6 +1413,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1418,8 +1439,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1456,6 +1477,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1481,8 +1503,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1520,6 +1542,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1545,8 +1568,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1583,6 +1606,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1608,8 +1632,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1646,6 +1670,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1671,8 +1696,72 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
+'*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
+'*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
+'*-q[Decrease reporter verbosity (repeatable; execution verbs only)]' \
+'*--quiet[Decrease reporter verbosity (repeatable; execution verbs only)]' \
+'--no-push[Release only\: skip pushing the release commit and tags]' \
+'--offline[Release bump/tag/publish only\: skip registry \`published_versions\` lookups and anchor idempotency on the release tag only]' \
+'--download[Release verify only\: download the declared assets from the hosted release and verify signature + checksum before extraction, instead of verifying the local \`dist/\` archives]' \
+'--no-run[Release verify only\: skip executing the packaged binary; presence, signature, and checksum are still enforced]' \
+'--non-interactive[Init only\: answer the wizard non-interactively, accepting every default]' \
+'--yes[Release bump/tag/publish/image only\: confirm the real mutation. Kept separate from \`--non-interactive\` so authorizing a release is always a deliberate flag, never something learned as harmless on \`init\`]' \
+'--print[Init only\: render the \`toven.toml\` to stdout and write nothing]' \
+'--auto-install[Driver/federation only\: provision missing drivers automatically]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+&& ret=0
+;;
+(groups)
+_arguments "${_arguments_options[@]}" : \
+'--config=[Path to the \`toven.toml\` config (otherwise discovered upward from the cwd)]:PATH:_files' \
+'--output=[Output format\: \`human\` tables or machine-readable \`jsonl\` (defaults to the \`\[toven\].report\` setting)]:FORMAT:((human\:"Human-readable terminal rendering"
+jsonl\:"Machine-parseable JSON-lines Event stream"))' \
+'--color=[When to colorize human output\: \`auto\` (default), \`always\`, or \`never\`. \`NO_COLOR\` always wins over \`always\`. Accepted on every command; commands that produce no colorized output simply ignore it]:WHEN:((auto\:"Color only when stderr is a terminal and \`NO_COLOR\` is unset (default)"
+always\:"Force color on (still overridden by \`NO_COLOR\`)"
+never\:"Force color off"))' \
+'--view=[How live per-unit output renders while a task runs\: \`auto\` (default), \`tiles\`, \`panes\`, or \`stream\`. Applies only when running tasks (\`toven run\` / \`toven <task>\`); overrides the \`\[toven\].view\` setting. Redirected, piped, \`--output jsonl\`, and non-interactive runs always use the linear \`stream\` shape regardless of this flag]:MODE:((auto\:"Pick the richest shape the environment supports (default)"
+tiles\:"One live, content-sized tile per in-flight unit in a single terminal"
+panes\:"One multiplexer pane per unit (opt-in; requires a supported multiplexer)"
+stream\:"A single linear stream, log-friendly (each unit flushed as one block)"))' \
+'--timeout=[When running tasks only\: bound how long any single execution unit may run before it is cooperatively cancelled and reported as a timeout failure (duration string, e.g. \`30s\`, \`5m\`)]:DURATION:_default' \
+'-j+[When running tasks only\: cap how many units run concurrently, overriding the \`\[toven\].max_parallel\` setting. \`--jobs 1\` forces strictly serial execution (one unit at a time), which streams each unit'\''s output inline as a single continuous log instead of buffered per-unit blocks]:N:_default' \
+'--jobs=[When running tasks only\: cap how many units run concurrently, overriding the \`\[toven\].max_parallel\` setting. \`--jobs 1\` forces strictly serial execution (one unit at a time), which streams each unit'\''s output inline as a single continuous log instead of buffered per-unit blocks]:N:_default' \
+'--compute-budget=[When running tasks only\: cap the CPU parallelism handed to each spawned tool, overriding \`\[toven\].compute_budget\`. The engine splits this total budget across the units running concurrently and injects each share as an ecosystem env var (e.g. \`GOMAXPROCS\`). \`auto\` sizes it to the host CPUs; \`inherit\` (or \`0\`) injects nothing]:BUDGET:_default' \
+'--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
+'*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
+'--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
+'*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
+'*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
+'*--major=[Release bump/tag/publish only\: force \`<module>\` to bump at the major level (repeatable; valued form \`--major=<module>\`). Given with no value, bumps every in-scope module at major, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
+'*--set-version=[Release bump/tag/publish only\: pin \`<module>=<x.y.z>\` to an explicit target version (repeatable), or a bare \`<x.y.z>\` to set every in-scope module to that version (lock-step, root included)]:[MODULE=]VERSION:_default' \
+'--pre=[Release bump/tag/publish only\: cut a prerelease on a configured channel (\`rc\`/\`alpha\`/\`beta\`)]:CHANNEL:_default' \
+'--out-dir=[Release sbom/depgraphs only\: directory to write generated artifacts into (created if absent; defaults to \`target/toven/release\`)]:PATH:_files' \
+'--target=[Release package only\: the target triple to package (e.g. \`x86_64-unknown-linux-gnu\`); selects the declared archive asset and the built binary under \`target/<triple>/release/\`]:TRIPLE:_default' \
+'--binary=[Release package only\: explicit path to the already-built binary to archive; defaults to \`target/<triple>/release/<binary>\`]:PATH:_files' \
+'--line=[Coverage only\: override the absolute line-coverage floor for this run (percentage, \`0..=100\`); wins over the \`\[…coverage\].line\` config default]:PCT:_default' \
+'--function=[Coverage only\: override the function-coverage floor for this run (percentage; gated only where the ecosystem measures functions)]:PCT:_default' \
+'--region=[Coverage only\: override the region-coverage floor for this run (percentage; gated only where the ecosystem measures regions)]:PCT:_default' \
+'--changed-line=[Coverage only\: override the changed-lines floor for this run (percentage; applied to changed files under a changed selection)]:PCT:_default' \
+'--enforcement=[Coverage only\: override how a below-threshold verdict is enforced (\`block\` fails the gate; \`advisory\` reports without failing)]:MODE:((block\:"Fail the gate closed on a below-threshold dimension"
+advisory\:"Measure and report the shortfall without failing"))' \
+'--force=[Init only\: regenerate one \`\[ecosystems.<id>\]\` section]:ID:_default' \
+'--root=[Init only\: project root to onboard against]:PATH:_files' \
+'--format=[Graph only\: dependency-graph rendering format]:FORMAT:((text\:"Indented adjacency text"
+dot\:"Graphviz DOT"))' \
+'--dry-run[Preview what would run, without executing anything]' \
+'--explain[Preview what would run, with the reasoning for each unit]' \
+'--fail-fast[Stop scheduling after the first failure (when running tasks only)]' \
+'--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
+'--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
+'--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1709,6 +1798,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1734,8 +1824,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1772,6 +1862,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1797,8 +1888,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1835,6 +1926,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1860,8 +1952,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1900,6 +1992,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1926,8 +2019,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -1964,6 +2057,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -1989,8 +2083,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2028,6 +2122,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2053,8 +2148,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2092,6 +2187,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2117,8 +2213,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2163,6 +2259,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2188,8 +2285,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2227,6 +2324,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2252,8 +2350,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2322,6 +2420,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2347,8 +2446,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2393,6 +2492,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2418,8 +2518,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2456,6 +2556,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2481,8 +2582,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2551,6 +2652,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2576,8 +2678,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2622,6 +2724,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2647,8 +2750,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2685,6 +2788,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2710,8 +2814,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2748,6 +2852,7 @@ stream\:"A single linear stream, log-friendly (each unit flushed as one block)")
 '--base=[Change-selection commands only\: override the diff baseline reference (per-member under a federation; falls back to \`\[\[members\]\].base_ref\` / \`\[project\].base_ref\`)]:REF:_default' \
 '*--module=[Execution/affected/explain verbs and bare tasks\: activate modules by selector — a bare name (\`core\`), \`ecosystem\:name\` (\`rust\:core\`), \`workspace/name\` (\`backend/api\`), or a glob (\`rust\:*\`, \`rskit-*\`) — bypassing changed-selection (repeatable)]:SELECTOR:_default' \
 '*--workspace=[Execution/affected/explain verbs and bare tasks\: activate every module owned by a workspace, by id or glob (\`backend\`, \`rust\:contrib\`, \`backend*\`), bypassing changed-selection (repeatable)]:SELECTOR:_default' \
+'*--group=[Execution/affected/explain verbs and bare tasks\: activate every member of a \`\[groups.*\]\` declaration, by name or glob (\`core\`, \`domain-*\`), bypassing changed-selection (repeatable). Ineligible members are skipped]:SELECTOR:_default' \
 '--watch-debounce-ms=[Watch only\: trailing-edge debounce window, in milliseconds, for coalescing a burst of filesystem events into one rerun (default 200)]:MS:_default' \
 '*--patch=[Release bump/tag/publish only\: force \`<module>\` to bump at the patch level (repeatable; valued form \`--patch=<module>\`). Given with no value, bumps every in-scope module at patch, each advancing from its own baseline (repo-wide). Highest precedence with the other level flags and \`--set-version\`; a module named in two level flags or a level flag plus \`--set-version\` is a usage error]::MODULE:_default' \
 '*--minor=[Release bump/tag/publish only\: force \`<module>\` to bump at the minor level (repeatable; valued form \`--minor=<module>\`). Given with no value, bumps every in-scope module at minor, each advancing from its own baseline (repo-wide)]::MODULE:_default' \
@@ -2773,8 +2878,8 @@ dot\:"Graphviz DOT"))' \
 '--no-cache[Execution verbs only\: bypass the task cache (every unit re-runs; records are neither read nor written)]' \
 '--refresh[Execution verbs only\: ignore cached results and re-run every unit, but still write the fresh results back (distinct from \`--no-cache\`, which neither reads nor writes). Mutually exclusive with \`--no-cache\`]' \
 '--merge-base[Change-selection commands only\: diff against \`merge-base(reference, HEAD)\`]' \
-'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
-'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`, also activate the forward-dependencies closure (everything the selection needs)]' \
+'--dependents[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the reverse-dependents closure (everything that depends on the selection)]' \
+'--dependencies[Execution/affected/explain verbs and bare tasks\: with \`--module\`/ \`--workspace\`/\`--group\`, also activate the forward-dependencies closure (everything the selection needs)]' \
 '--watch[When running tasks only\: keep running, re-executing the affected subgraph each time a watched source file changes (Ctrl+C exits)]' \
 '*-v[Increase reporter verbosity (repeatable; execution verbs only)]' \
 '*--verbose[Increase reporter verbosity (repeatable; execution verbs only)]' \
@@ -2940,6 +3045,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(groups)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (graph)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -3062,6 +3171,7 @@ _toven_commands() {
 'modules:List discovered modules' \
 'list:List discovered modules' \
 'ls:List discovered modules' \
+'groups:List declared \`\[groups.*\]\` with their description and members' \
 'graph:Project the dependency graph (text or dot)' \
 'deps:Project the dependency graph (text or dot)' \
 'tasks:List the runnable tasks resolved for each ecosystem' \
@@ -3251,6 +3361,11 @@ _toven__subcmd__graph_commands() {
     local commands; commands=()
     _describe -t commands 'toven graph commands' commands "$@"
 }
+(( $+functions[_toven__subcmd__groups_commands] )) ||
+_toven__subcmd__groups_commands() {
+    local commands; commands=()
+    _describe -t commands 'toven groups commands' commands "$@"
+}
 (( $+functions[_toven__subcmd__help_commands] )) ||
 _toven__subcmd__help_commands() {
     local commands; commands=(
@@ -3262,6 +3377,7 @@ _toven__subcmd__help_commands() {
 'init:Detect ecosystems and write (or preview) a \`toven.toml\` via the wizard' \
 'affected:Project the affected-module set for a task' \
 'modules:List discovered modules' \
+'groups:List declared \`\[groups.*\]\` with their description and members' \
 'graph:Project the dependency graph (text or dot)' \
 'tasks:List the runnable tasks resolved for each ecosystem' \
 'doctor:Audit the tools the resolved task graph needs and report which are present or missing' \
@@ -3368,6 +3484,11 @@ _toven__subcmd__help__subcmd__federation__subcmd__sync_commands() {
 _toven__subcmd__help__subcmd__graph_commands() {
     local commands; commands=()
     _describe -t commands 'toven help graph commands' commands "$@"
+}
+(( $+functions[_toven__subcmd__help__subcmd__groups_commands] )) ||
+_toven__subcmd__help__subcmd__groups_commands() {
+    local commands; commands=()
+    _describe -t commands 'toven help groups commands' commands "$@"
 }
 (( $+functions[_toven__subcmd__help__subcmd__help_commands] )) ||
 _toven__subcmd__help__subcmd__help_commands() {

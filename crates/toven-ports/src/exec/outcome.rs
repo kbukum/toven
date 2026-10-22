@@ -15,6 +15,10 @@ pub struct RunOutcome {
     pub success: bool,
     /// The process exit code, or `None` if it was killed by a signal.
     pub exit_code: Option<i32>,
+    /// Whether the run was stopped through its cancellation token before it
+    /// finished. A cancelled run is never `success`; the caller reports it as
+    /// cancelled rather than failed.
+    pub cancelled: bool,
     /// Raw child output captured during the run, in arrival order.
     ///
     /// The wave walk routes these chunks through the per-unit output channel
@@ -29,6 +33,7 @@ impl RunOutcome {
         Self {
             success: true,
             exit_code: Some(0),
+            cancelled: false,
             output,
         }
     }
@@ -39,6 +44,19 @@ impl RunOutcome {
         Self {
             success: false,
             exit_code,
+            cancelled: false,
+            output,
+        }
+    }
+
+    /// An outcome for a run stopped through its cancellation token, keeping
+    /// any `output` produced before the stop.
+    #[must_use]
+    pub const fn cancelled(output: Vec<UnitOutput>) -> Self {
+        Self {
+            success: false,
+            exit_code: None,
+            cancelled: true,
             output,
         }
     }

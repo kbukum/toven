@@ -1,11 +1,12 @@
 //! `toven doctor`: the tool-audit verb.
 //!
-//! Answers "does this repository have the tools its tasks will run?" by
-//! rendering the engine's [`ToolAudit`] — the classified, de-duplicated tool
-//! set of the resolved task graph — through the same reporter sinks a run uses
-//! (human on stderr, `--output jsonl` on stdout). The process exit is non-zero
-//! when any required tool is missing, so `doctor` gates a script the way a
-//! failing task would.
+//! Answers "does this repository have the tools its tasks will run, and is it
+//! ready to run them?" by rendering the engine's [`ToolAudit`] — the
+//! classified, de-duplicated tool set of the resolved task graph — and every
+//! health check (the ecosystems' own, then `[doctor.checks]`) through the same
+//! reporter sinks a run uses (human on stderr, `--output jsonl` on stdout). The
+//! process exit is non-zero when any required tool is missing or any check
+//! fails, so `doctor` gates a script the way a failing task would.
 //!
 //! Provisioning is an explicit opt-in: without `--ensure`/`--auto-install` the
 //! verb is report-only (it never dials the network or installs anything). With
@@ -17,7 +18,7 @@
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming};
+use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming, scan};
 use toven_engine::health::{CheckOutcome, run_checks};
 use toven_engine::toolchain::ProcessToolchainProber;
 use toven_exec::ProcessToolRunner;
@@ -44,18 +45,15 @@ pub(crate) fn doctor(
     let prober = ProcessToolchainProber::new(std::sync::Arc::clone(&runner));
     // Reject an unknown profile before the slow tool audit runs.
     project.document.doctor.selected(profiles)?;
+    let found = scan(&project.project_root, &project.document, providers)?;
     let mut reporter = report.reporter();
     // Emit each tool's verdict as its probe completes, so `doctor` reports
     // incrementally like a run rather than buffering the whole audit.
     let audited = {
         let sink = reporter.as_mut();
-        audit_streaming(
-            &project.project_root,
-            &project.document,
-            providers,
-            &prober,
-            &mut |tool| emit_tool(sink, tool),
-        )?
+        audit_streaming(&project.project_root, &found.probes, &prober, &mut |tool| {
+            emit_tool(sink, tool)
+        })?
     };
     let checks = {
         let sink = reporter.as_mut();
@@ -63,6 +61,7 @@ pub(crate) fn doctor(
             &project.project_root,
             &project.document.doctor,
             profiles,
+            &found.checks,
             runner.as_ref(),
             &mut |check| emit_check(sink, check),
         )?

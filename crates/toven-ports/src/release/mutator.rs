@@ -26,4 +26,22 @@ pub trait ManifestMutator {
         module: &Module,
         mutation: &ReleaseMutation,
     ) -> AppResult<Vec<RepoPath>>;
+
+    /// Finish a release's manifest mutations once every module of this target
+    /// has been written, and return the repo-relative paths it rewrote.
+    ///
+    /// `modules` are the modules whose [`apply_release`](Self::apply_release)
+    /// rewrote at least one path, in plan order. An ecosystem whose package
+    /// manager records workspace versions outside the manifests (an npm or
+    /// pnpm lockfile) refreshes that shared file here once, rather than once
+    /// per module. The engine stages these paths into the release commit with
+    /// the per-module manifests. The default writes nothing.
+    ///
+    /// # Errors
+    /// A typed error when the shared refresh fails; the release stops before
+    /// the commit.
+    fn finalize_release(&self, modules: &[&Module]) -> AppResult<Vec<RepoPath>> {
+        let _ = modules;
+        Ok(Vec::new())
+    }
 }

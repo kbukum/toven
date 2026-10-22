@@ -10,7 +10,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0-alpha.14"
+version = "0.1.0-alpha.15"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
@@ -48,6 +48,7 @@ toven-runtime = { path = "crates/toven-runtime" }
 toven-cli = { path = "crates/toven-cli" }
 toven-rust = { path = "crates/toven-rust" }
 toven-go = { path = "crates/toven-go" }
+toven-js = { path = "crates/toven-js" }
 toven-command = { path = "crates/toven-command" }
 toven-testkit = { path = "crates/toven-testkit" }
 clap = { version = "4", features = ["derive"] }

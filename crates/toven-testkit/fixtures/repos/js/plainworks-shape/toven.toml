@@ -1,0 +1,96 @@
+# A plainworks-shaped Bun workspace: published libraries under `packages/`, a
+# private app under `apps/`, and private tooling under `internal/`, with
+# `catalog:` and `workspace:*` ranges. The root keeps Turbo orchestrator
+# scripts (`build`, `test`, `typecheck`), which Toven drops because members run
+# them, and root-only gates (`lint`, `check-versions`). The tasks keep the shape
+# a migrated plainworks uses (`requires`, `^build`, `dist` outputs), with
+# stand-in argv so scenarios need no package manager.
+[project]
+name = "plainworks-shape"
+
+# One unit at a time keeps the scenario output order deterministic.
+[toven]
+max_parallel = 1
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.coverage]
+line = 80.0
+changed_line = 85.0
+enforcement = "block"
+
+[ecosystems.js.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && cp {module.root}/src/index.js {module.root}/dist/index.js && echo build {module.name}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+outputs = ["dist"]
+requires = ["script:build"]
+
+[ecosystems.js.tasks.typecheck]
+argv = ["echo", "typecheck {module.name}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:typecheck"]
+
+[ecosystems.js.tasks.test]
+argv = ["echo", "test {module.name}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+requires = ["script:test"]
+
+# Packaging checks read the package's own build output.
+[ecosystems.js.tasks.check-packaging]
+argv = ["sh", "-c", "test -f {module.root}/dist/index.js && echo check-packaging {module.name}"]
+depends_on = ["build"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:check-packaging"]
+
+[ecosystems.js.tasks.check-production]
+argv = ["echo", "check-production {module.name}"]
+cacheable = false
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:check-production"]
+
+# Root-only gates read every package, so they stay uncached: the root module
+# owns only root-level files.
+[ecosystems.js.tasks.lint]
+argv = ["echo", "lint {module.name}"]
+cacheable = false
+fan_out = "per-module"
+requires = ["script:lint"]
+
+[ecosystems.js.tasks.check-versions]
+argv = ["echo", "check-versions {module.name}"]
+cacheable = false
+fan_out = "per-module"
+kind = "check"
+requires = ["script:check-versions"]
+
+# Stands in for `vitest run --coverage`: writes a package-relative LCOV
+# profile under the `js-<module>` producer name.
+[ecosystems.js.tasks.coverage]
+argv = ["sh", "-c", "mkdir -p \"$1\" && printf 'SF:src/index.js\\nDA:1,1\\nend_of_record\\n' > \"$1/lcov.info\"", "sh", "{project.root}/target/toven/coverage/js-{module.name}"]
+cacheable = false
+fan_out = "per-module"
+kind = "coverage"
+requires = ["script:test"]
+
+# The ordered gate list `bun run verify` used to run through Turbo.
+[sets.verify]
+tasks = ["check-versions", "lint", "typecheck", "build", "test", "check-packaging", "check-production"]
+
+# Changesets keeps writing versions; Toven tags and publishes them.
+[ecosystems.js.release]
+strategy = "manifest"
+dependent_version = "upgrade"
+registry = "npmjs"
+push = false
+offline = true
+
+[ecosystems.js.release.prerelease]
+channels = ["alpha", "beta", "rc"]

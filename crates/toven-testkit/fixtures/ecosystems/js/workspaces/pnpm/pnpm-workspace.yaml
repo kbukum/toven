@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - libs/**
+  - '!libs/scratch'
+catalog:
+  react: ^18.3.0

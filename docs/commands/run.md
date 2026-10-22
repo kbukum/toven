@@ -29,7 +29,7 @@ toven run build,test,lint
 toven verify
 ```
 
-Toven plans the tasks into one plan and runs them side by side. List order is not run order. A `--` passthrough needs exactly one task. With `--module`, each task runs on the selected modules it applies to and skips the rest, including modules of an ecosystem that lacks the task (see the task `modules` key). The run fails only if no task applies to any selected module.
+Toven plans the tasks into one plan and runs them side by side. List order is not run order. A `--` passthrough needs exactly one task. With `--module`, each task runs on the selected modules it applies to. Modules of an ecosystem that lacks the task are left out, and modules the task's `modules` or `requires` excludes are reported as skipped (see [where a task runs](../config/README.md#where-a-task-runs)). The run fails only if no task applies to any selected module.
 
 ## What happens during a run
 
@@ -105,13 +105,16 @@ toven test --module toven-cli
 toven test --module rust:toven-cli
 toven test --module 'rust:*'
 toven test --workspace rust
+toven test --group integration
 toven test --module rust:toven-cli --dependents
 toven test --module rust:toven-cli --dependencies
 ```
 
 Selectors may be a bare module name, canonical `ecosystem:name`, `workspace/name`, or a glob. Ambiguous bare names fail and list qualified candidates.
 
-`--module` and `--workspace` are repeatable. They cannot be combined with `--base` or `--merge-base`.
+`--group` selects every member of a [`[groups.<name>]`](../config/README.md#groups-and-overrides) by name or glob. Like a glob, it is a broad selection: members the task does not apply to are skipped. An unknown group fails and lists the declared groups.
+
+`--module`, `--workspace` and `--group` are repeatable and combine. They cannot be combined with `--base` or `--merge-base`.
 
 ## Select changed work
 

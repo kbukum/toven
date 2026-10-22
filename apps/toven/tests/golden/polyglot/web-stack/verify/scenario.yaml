@@ -1,0 +1,29 @@
+# runlab's `make verify` as one Toven set over a Go service, two Bun roots, and
+# a `proto` command module. Every task runs only where its script exists, the
+# overlays order `proto` before `gen/ts` before `web`, and a warm run replays
+# every cached unit. Repacking the plainworks tarball that `web` installs
+# through a `file:` range invalidates `web` alone: `gen/ts`, `proto`, and the
+# Go service stay cached.
+repo: polyglot/web-stack
+requires: [go, bun]
+steps:
+  - id: 01-plan-verify
+    argv: [plan, verify]
+    stderr: { match: normalized }
+  - id: 02-verify-cold
+    argv: [verify]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: web/dist/index.js
+      - path_absent: gen/ts/dist
+  - id: 03-verify-warm
+    argv: [verify]
+    stderr: { match: normalized }
+  - id: 04-repack-plainworks
+    argv: [--module, "js:web", run, repack]
+    stderr: { match: normalized }
+    effects:
+      - file_matches: { path: vendor/plainworks/std.tgz, golden: std.repacked.tgz }
+  - id: 05-verify-after-repack
+    argv: [verify]
+    stderr: { match: normalized }

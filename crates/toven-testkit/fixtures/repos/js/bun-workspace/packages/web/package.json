@@ -1,0 +1,6 @@
+{
+  "name": "@acme/web",
+  "version": "1.0.0",
+  "dependencies": { "@acme/std": "workspace:*" },
+  "scripts": { "build": "vite build" }
+}

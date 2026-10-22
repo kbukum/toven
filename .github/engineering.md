@@ -56,7 +56,7 @@ One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`).
 - `crates/toven-engine` (L2b) — the rest of PLAN/APPLY coordination (apply, cache, coverage, output, watch, init, doctor) and the concrete rskit-backed adapters for the injected ports (e.g. `ProcessToolchainProber`, `FsSourceDigest`, `NullCache`). A peer of `toven-release` over `toven-core`.
 - adapter crates `crates/toven-{rust,go,command}` (L2) — ecosystem adapters implementing the `toven-ports` traits; never reach into the engine or cli.
 - `crates/toven-cli` (L3) — CLI taxonomy, argv-first dispatch, and the stdio/Event projection sinks (the only layer that prints).
-- `apps/*` (L4) — thin wiring binaries (`apps/toven`, `apps/toven-rs`, `apps/toven-go`); each wires a set of adapters into `toven-cli`. No new capability lives here — it belongs in the appropriate `crates/*` layer.
+- `apps/*` (L4) — thin wiring binaries (`apps/toven`, `apps/toven-rs`, `apps/toven-go`, `apps/toven-js`); each wires a set of adapters into `toven-cli`. No new capability lives here — it belongs in the appropriate `crates/*` layer.
 - `crates/toven-testkit` — dev-only (`publish = false`) shared test surface: fixtures API, port doubles, sample-repo/git scenario helpers. Tests use it instead of inline TOML.
 
 **Port placement (binding):** a port trait lives in `toven-ports`; its concrete adapter lives in the consuming crate (an engine crate, a `toven-<eco>` adapter, or a focused mechanism crate such as `toven-exec`/`toven-vcs`), never beside the trait; every port has exactly one shared double in `toven-testkit` (`doubles/<port>.rs`) — no port double is stranded inline in a crate's `tests/`. A port trait references only `toven-model` + rskit + std/ports value types; no engine type leaks upward.

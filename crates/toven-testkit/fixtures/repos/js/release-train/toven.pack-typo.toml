@@ -1,0 +1,17 @@
+# A pack command keyed by a directory that is not a JavaScript root fails
+# closed instead of silently packing with npm.
+[project]
+name = "js-release-train"
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.pack]
+web = ["node", "scripts/pack.mjs", "{module.root}", "--destination", "{destination}"]
+
+[ecosystems.js.release]
+strategy = "semver-cascade"
+level = "minor"
+push = false
+registry = "npmjs"
+offline = true

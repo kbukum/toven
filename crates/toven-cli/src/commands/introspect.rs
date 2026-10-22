@@ -1,5 +1,5 @@
-//! Introspection verbs: `modules`/`list`, `graph`/`deps`, `affected`, and
-//! `explain`.
+//! Introspection verbs: `modules`/`list`, `groups`, `graph`/`deps`,
+//! `affected`, and `explain`.
 //!
 //! `affected` and `explain` are thin projections over one immutable [`Plan`].
 //! The shared [`build_plan`] runs the PLAN spine once with caching disabled
@@ -7,7 +7,7 @@
 //! that keeps stdout reserved for the projection while still surfacing
 //! warnings, then the verb filters the resulting units.
 //!
-//! `modules` and `graph` project the validated discovered [`Graph`] directly,
+//! `modules`, `groups`, and `graph` project the validated discovered [`Graph`] directly,
 //! so they do not depend on any particular task kind being configured or
 //! schedulable.
 
@@ -18,14 +18,15 @@ use rskit_cli::{ExitCode, OutputKV, OutputTable};
 use rskit_errors::{AppError, AppResult, ErrorCode};
 use toven_core::federation::resolve::PathDriverLocator;
 use toven_core::plan::{
-    CacheMode, FocusedPlan, PlanHost, PlanRequest, Selection, dependency_graph, plan_focused,
+    CacheMode, FocusedPlan, GroupIndex, PlanHost, PlanRequest, Selection, dependency_graph,
+    group_index, plan_focused,
 };
 use toven_core::vcs::BaselineFlags;
 use toven_engine::cache::NullCache;
 use toven_engine::source::FsSourceDigest;
 use toven_engine::toolchain::ProcessToolchainProber;
 use toven_exec::ProcessToolRunner;
-use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan, RepoPath};
+use toven_model::{Event, ExecutionUnit, Graph, ModuleKey, Plan, RepoPath, SkippedModule};
 use toven_ports::{Provider, Reporter, TaskIntent};
 
 use crate::commands::selection::TaskSelection;
@@ -194,6 +195,109 @@ pub(crate) fn modules(
     Ok(ExitCode::Success)
 }
 
+/// `toven groups`: every declared `[groups.*]` with its description, the
+/// groups it may depend on, and its resolved members.
+///
+/// Renders a human table by default, or one JSON record per group under
+/// `--output jsonl` so kit scripts (module indexes, domain checks) read groups
+/// from Toven instead of keeping a second domain list.
+///
+/// # Errors
+/// Propagates Configure/Discover/Graph failures (including group guardrail
+/// violations) or a stdout write failure.
+pub(crate) fn groups(
+    providers: &[&dyn Provider],
+    project: &Project,
+    output: Option<OutputKind>,
+) -> AppResult<ExitCode> {
+    let locator = PathDriverLocator::new();
+    let mut reporter = QuietReporter::human();
+    let (graph, groups) = group_index(
+        &project.project_root,
+        &project.document,
+        providers,
+        &locator,
+        &mut reporter,
+    )?;
+    let rows = group_rows(&graph, &groups, Path::new(&project.document.project.root))?;
+    match resolve_output(output, &project.document) {
+        OutputKind::Jsonl => write_jsonl(&mut std::io::stdout().lock(), &rows)?,
+        OutputKind::Human => render_groups_human(&rows),
+    }
+    Ok(ExitCode::Success)
+}
+
+/// One declared group, serialized directly as the stable `jsonl` record.
+#[derive(serde::Serialize)]
+struct GroupRow {
+    group: String,
+    description: Option<String>,
+    allow_groups: Option<Vec<String>>,
+    members: Vec<ModuleRow>,
+}
+
+/// Project the group index onto rows whose members carry module rows.
+///
+/// # Errors
+/// Propagates [`module_rows`] failures.
+fn group_rows(graph: &Graph, groups: &GroupIndex, project_root: &Path) -> AppResult<Vec<GroupRow>> {
+    let modules = module_rows(graph, project_root)?;
+    Ok(groups
+        .iter()
+        .map(|(name, entry)| {
+            let wanted: BTreeSet<String> = entry.members.iter().map(ToString::to_string).collect();
+            GroupRow {
+                group: name.to_string(),
+                description: entry.description.clone(),
+                allow_groups: entry
+                    .allow_groups
+                    .as_ref()
+                    .map(|groups| groups.iter().cloned().collect()),
+                members: modules
+                    .iter()
+                    .filter(|row| wanted.contains(&row.module))
+                    .cloned()
+                    .collect(),
+            }
+        })
+        .collect())
+}
+
+/// Render groups as a titled table (Group, Members, May depend on, Description).
+fn render_groups_human(rows: &[GroupRow]) {
+    // A large group would stretch a members column past any terminal width, so
+    // the table summarizes each group and the members follow one line per group.
+    let mut table = OutputTable::new(vec!["Group", "Modules", "May depend on", "Description"])
+        .with_title("Groups");
+    for row in rows {
+        table.add_row(vec![
+            row.group.clone(),
+            row.members.len().to_string(),
+            row.allow_groups.as_ref().map_or_else(
+                || "any".to_string(),
+                |groups| {
+                    if groups.is_empty() {
+                        "none".to_string()
+                    } else {
+                        groups.join(", ")
+                    }
+                },
+            ),
+            row.description.clone().unwrap_or_default(),
+        ]);
+    }
+    println!("{table}");
+    println!("Members");
+    for row in rows {
+        let members: Vec<&str> = row
+            .members
+            .iter()
+            .map(|member| member.module.as_str())
+            .collect();
+        println!("  {}: {}", row.group, members.join(", "));
+    }
+}
+
 /// `toven affected <task>`: the modules with a scheduled unit for `task`, or
 /// for any task of a list or set.
 ///
@@ -290,27 +394,25 @@ pub(crate) fn explain(
         QuietReporter::human(),
     )?;
 
-    if plan.units.is_empty() {
-        return Err(AppError::not_found(
-            &task_name,
-            Some("no planned unit for that task and selection"),
-        ));
-    }
+    let in_focus = |key: &ModuleKey| focus.as_ref().is_none_or(|targets| targets.contains(key));
+    let shown: Vec<&ExecutionUnit> = plan
+        .units
+        .iter()
+        .filter(|unit| unit.members.iter().any(&in_focus))
+        .collect();
+    let skipped: Vec<&SkippedModule> = plan
+        .skipped
+        .iter()
+        .filter(|skip| in_focus(&skip.module))
+        .collect();
 
-    let shown: Vec<&ExecutionUnit> = match &focus {
-        Some(targets) => plan
-            .units
-            .iter()
-            .filter(|unit| unit.members.iter().any(|member| targets.contains(member)))
-            .collect(),
-        None => plan.units.iter().collect(),
-    };
-
-    if shown.is_empty() {
-        return Err(AppError::not_found(
-            &task_name,
-            Some("the selected module is not in any planned unit for that task"),
-        ));
+    if shown.is_empty() && skipped.is_empty() {
+        let reason = if focus.is_some() {
+            "the selected module is not in any planned unit for that task"
+        } else {
+            "no planned unit for that task and selection"
+        };
+        return Err(AppError::not_found(&task_name, Some(reason)));
     }
 
     for unit in shown {
@@ -335,6 +437,23 @@ pub(crate) fn explain(
             .add("argv", format!("{:?}", unit.argv))
             .add("persistent", unit.persistent.to_string())
             .add("depends_on", unit.depends_on.join(", "));
+        println!("{detail}");
+    }
+    for skip in skipped {
+        let missing: Vec<String> = skip
+            .reason
+            .missing()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let mut detail = OutputKV::new();
+        detail
+            .add("skipped", skip.module.to_string())
+            .add("task", skip.task.clone())
+            .add("reason", skip.reason.code());
+        if !missing.is_empty() {
+            detail.add("missing", missing.join(", "));
+        }
         println!("{detail}");
     }
     Ok(ExitCode::Success)
@@ -362,7 +481,7 @@ fn print_module_table(title: &str, modules: Vec<String>) {
 /// A discovered module paired with its owning workspace and root path,
 /// for the `modules` and `affected` projections. Serializes directly as the
 /// stable `jsonl` record schema.
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 struct ModuleRow {
     module: String,
     workspace: Option<String>,
@@ -439,7 +558,7 @@ fn render_modules_human(rows: &[ModuleRow]) {
 /// # Errors
 /// Propagates a serialization or stdout write failure.
 fn render_modules_jsonl(rows: &[ModuleRow]) -> AppResult<()> {
-    write_modules_jsonl(&mut std::io::stdout().lock(), rows)
+    write_jsonl(&mut std::io::stdout().lock(), rows)
 }
 
 /// Write one JSON record per row. A reader that closes early (`toven … | head`)
@@ -448,7 +567,7 @@ fn render_modules_jsonl(rows: &[ModuleRow]) -> AppResult<()> {
 /// # Errors
 /// Propagates a serialization failure or any write failure other than a broken
 /// pipe.
-fn write_modules_jsonl(out: &mut impl std::io::Write, rows: &[ModuleRow]) -> AppResult<()> {
+fn write_jsonl<T: serde::Serialize>(out: &mut impl std::io::Write, rows: &[T]) -> AppResult<()> {
     let written = rows.iter().try_for_each(|row| {
         serde_json::to_writer(&mut *out, row).map_err(std::io::Error::from)?;
         out.write_all(b"\n")
@@ -496,7 +615,7 @@ mod tests {
 
     use toven_model::{DepKind, EcosystemId, Edge, Graph, MemberId, Module, ModuleRef, RepoPath};
 
-    use super::{ModuleRow, affected_rows, module_rows, render_graph_text, write_modules_jsonl};
+    use super::{ModuleRow, affected_rows, module_rows, render_graph_text, write_jsonl};
 
     fn module(name: &str) -> Module {
         Module::new(mref(name), RepoPath::new(format!("crates/{name}")).unwrap())
@@ -634,7 +753,7 @@ mod tests {
     #[test]
     fn jsonl_writes_one_record_per_line() {
         let mut out = Vec::new();
-        write_modules_jsonl(&mut out, &rows(&graph())).expect("write");
+        write_jsonl(&mut out, &rows(&graph())).expect("write");
         let text = String::from_utf8(out).expect("utf8");
         assert_eq!(
             text,
@@ -645,13 +764,13 @@ mod tests {
     #[test]
     fn jsonl_stops_cleanly_when_the_reader_closes() {
         let mut out = FailingWriter(std::io::ErrorKind::BrokenPipe);
-        assert!(write_modules_jsonl(&mut out, &rows(&graph())).is_ok());
+        assert!(write_jsonl(&mut out, &rows(&graph())).is_ok());
     }
 
     #[test]
     fn jsonl_reports_other_write_failures() {
         let mut out = FailingWriter(std::io::ErrorKind::PermissionDenied);
-        assert!(write_modules_jsonl(&mut out, &rows(&graph())).is_err());
+        assert!(write_jsonl(&mut out, &rows(&graph())).is_err());
     }
 
     #[test]
@@ -685,6 +804,7 @@ mod tests {
             fail_if_output: false,
             cache: CacheVerdict::Miss,
             cache_key: None,
+            outputs: Vec::new(),
             depends_on: Vec::new(),
             resource_group: None,
         };

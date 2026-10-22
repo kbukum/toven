@@ -1,0 +1,6 @@
+{
+  "name": "acme-coverage",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "lint": "eslint ." }
+}

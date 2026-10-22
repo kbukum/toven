@@ -132,11 +132,12 @@ affected:
 
 # In-tree app smoke: drive the freshly-built app binaries over the committed
 # fixtures via the `apps/*/tests` integration tests — `toven-rs` runs a full
-# PLAN+APPLY, the umbrella `toven` a read-only PLAN cut, and `toven-go` the real
-# driver handshake (`federation_smoke`). The same tests run under `make test`.
+# PLAN+APPLY, the umbrella `toven` a read-only PLAN cut, `toven-js` offline
+# discovery and graph, and `toven-go` the real driver handshake
+# (`federation_smoke`). The same tests run under `make test`.
 # Offline.
 smoke:
-	cargo nextest run --profile $(NEXTEST_PROFILE) -p toven -p toven-rs -p toven-go-app -E 'binary(/smoke$$/)'
+	cargo nextest run --profile $(NEXTEST_PROFILE) -p toven -p toven-rs -p toven-go-app -p toven-js-app -E 'binary(/smoke$$/)'
 
 # Binary smoke over an arbitrary real repository: drive the umbrella `toven`
 # binary through `modules` + a PLAN cut (read-only, no APPLY). The repo must

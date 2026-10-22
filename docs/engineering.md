@@ -51,7 +51,7 @@ L0   toven-model
 L0.5 toven-semver
 L1   toven-ports
 L1.5 toven-exec / toven-vcs / toven-runtime
-L2   toven-core / toven-version / toven-release / toven-engine / toven-rust / toven-go / toven-command
+L2   toven-core / toven-version / toven-release / toven-engine / toven-rust / toven-go / toven-js / toven-command
 L3   toven-cli
 L4   apps/*
 ```

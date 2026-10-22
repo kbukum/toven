@@ -17,6 +17,7 @@ use toven_ports::{Provider, Reporter};
 
 use super::aggregate::{CoverageInputs, aggregate};
 use super::goimport::GoImportRoots;
+use super::locate::locate;
 use super::read::{COVERAGE_DIR, read_profiles};
 use super::report::CoverageReport;
 use super::settings::{CoverageOverrides, ResolvedCoverageSettings};
@@ -57,7 +58,13 @@ pub fn coverage_report(
 
     validate_settings(&context)?;
 
-    let active = active_modules(request, &context.graph, &context.federation, readers)?;
+    let active = active_modules(
+        request,
+        &context.graph,
+        &context.federation,
+        &context.groups,
+        readers,
+    )?;
     let scope: Vec<Module> = context
         .federation
         .modules
@@ -96,8 +103,12 @@ pub fn coverage_report(
         &go_roots,
     )?;
 
+    let profiles = locate(
+        profiles,
+        &context.federation.modules,
+        request.project_root.as_path(),
+    )?;
     let report = aggregate(&CoverageInputs {
-        project_root: request.project_root.as_path(),
         owners: &context.federation.modules,
         modules: &scope,
         profiles: &profiles,

@@ -1,0 +1,19 @@
+{
+  "name": "@pw/host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check-production": "vite build --mode production"
+  },
+  "dependencies": {
+    "@pw/ui": "workspace:*",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@pw/vitest-config": "workspace:*"
+  }
+}

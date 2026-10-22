@@ -8,11 +8,11 @@
 //! release-target double lives beside this one in [`release`](super::release).
 
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::EcosystemId;
+use toven_model::{AbsPath, EcosystemId, ToolchainTag};
 use toven_ports::{
     Answers, CommonEcosystemConfig, ConfiguredAdapter, DEFAULT_READINESS_TIMEOUT, Detection,
-    DiscoverRequest, DiscoverResponse, EcosystemFragment, Provider, Questionnaire, ReleaseAdapter,
-    RunStrategy, Task, TaskEntry, TaskKind, ToolchainProbe,
+    DiscoverRequest, DiscoverResponse, DoctorScope, EcosystemFragment, Provider, Questionnaire,
+    ReleaseAdapter, RunStrategy, Task, TaskEntry, TaskIntent, TaskKind, ToolchainProbe,
 };
 
 use super::release::FakeReleaseTarget;
@@ -34,6 +34,8 @@ pub struct FakeConfiguredAdapter {
     release_target: Option<FakeReleaseTarget>,
     common: CommonEcosystemConfig,
     compute_budget_env: Vec<String>,
+    probe_driver: bool,
+    doctor: Option<DoctorScope>,
 }
 
 impl FakeConfiguredAdapter {
@@ -48,6 +50,8 @@ impl FakeConfiguredAdapter {
             release_target: None,
             common: CommonEcosystemConfig::default(),
             compute_budget_env: Vec::new(),
+            probe_driver: false,
+            doctor: None,
         }
     }
 
@@ -74,6 +78,23 @@ impl FakeConfiguredAdapter {
     #[must_use]
     pub fn with_probe(mut self, probe: ToolchainProbe) -> Self {
         self.probe = probe;
+        self
+    }
+
+    /// Also probe each workspace's own driver (its [`ToolchainTag::tool`],
+    /// checked with `--version`) after the ecosystem-wide probe, like an
+    /// adapter whose workspaces use different package managers.
+    #[must_use]
+    pub const fn with_driver_probe(mut self) -> Self {
+        self.probe_driver = true;
+        self
+    }
+
+    /// Set the scope `doctor` returns instead of the default (the probe's
+    /// program, no checks).
+    #[must_use]
+    pub fn with_doctor(mut self, scope: DoctorScope) -> Self {
+        self.doctor = Some(scope);
         self
     }
 
@@ -122,6 +143,9 @@ fn task_entry(task: &Task) -> (String, TaskEntry) {
         argv: task.argv.clone(),
         selector: task.selector.clone(),
         fan_out: task.fan_out,
+        requires: task.requires.clone(),
+        depends_on: task.depends_on.clone(),
+        outputs: task.outputs.clone(),
         workspace_closure: task.workspace_closure,
         persistent: task.persistent,
         readiness: task.readiness.clone(),
@@ -144,6 +168,28 @@ impl ConfiguredAdapter for FakeConfiguredAdapter {
 
     fn toolchain_probe(&self) -> ToolchainProbe {
         self.probe.clone()
+    }
+
+    fn toolchain_probes_for(
+        &self,
+        toolchain: &ToolchainTag,
+        _intent: &TaskIntent,
+    ) -> AppResult<Vec<ToolchainProbe>> {
+        let mut probes = vec![self.probe.clone()];
+        if self.probe_driver && toolchain.tool != self.probe.program {
+            probes.push(ToolchainProbe::new(
+                toolchain.tool.clone(),
+                toolchain.tool.clone(),
+                vec!["--version".to_string()],
+            ));
+        }
+        Ok(probes)
+    }
+
+    fn doctor(&self, _project_root: &AbsPath) -> AppResult<DoctorScope> {
+        Ok(self.doctor.clone().unwrap_or_else(|| {
+            DoctorScope::new(vec![ToolchainTag::new(self.probe.program.clone())])
+        }))
     }
 
     fn run_strategy_default(&self, _kind: TaskKind) -> RunStrategy {

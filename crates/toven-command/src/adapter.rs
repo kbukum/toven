@@ -1,6 +1,7 @@
 //! [`CommandAdapter`] — the configured escape-hatch adapter the engine drives.
 
 use rskit_errors::AppResult;
+use toven_model::ToolchainTag;
 use toven_ports::{
     CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
     RunStrategy, TaskIntent, TaskKind, ToolchainProbe,
@@ -90,9 +91,13 @@ impl ConfiguredAdapter for CommandAdapter {
     /// tool to be installed for an unrelated run. An explicit `[toolchain]`
     /// still wins (it declares one tool for the whole ecosystem); an unknown or
     /// program-less task falls back to the ecosystem default probe.
-    fn toolchain_probes_for(&self, intent: &TaskIntent) -> Vec<ToolchainProbe> {
+    fn toolchain_probes_for(
+        &self,
+        _toolchain: &ToolchainTag,
+        intent: &TaskIntent,
+    ) -> AppResult<Vec<ToolchainProbe>> {
         if self.config.toolchain.is_some() {
-            return vec![self.toolchain_probe()];
+            return Ok(vec![self.toolchain_probe()]);
         }
         if let Some(program) = self
             .config
@@ -101,13 +106,13 @@ impl ConfiguredAdapter for CommandAdapter {
             .get(intent.name())
             .and_then(|entry| entry.argv.first())
         {
-            return vec![ToolchainProbe::new(
+            return Ok(vec![ToolchainProbe::new(
                 program.clone(),
                 program.clone(),
                 vec!["--version".to_string()],
-            )];
+            )]);
         }
-        vec![self.toolchain_probe()]
+        Ok(vec![self.toolchain_probe()])
     }
 
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
@@ -135,7 +140,12 @@ mod tests {
 
     use super::CommandAdapter;
     use crate::config::{CommandConfig, DeclaredToolchain};
+    use toven_model::ToolchainTag;
     use toven_ports::TaskIntent;
+
+    fn tag() -> ToolchainTag {
+        ToolchainTag::new("command")
+    }
 
     fn task_entry(argv: &[&str]) -> TaskEntry {
         TaskEntry {
@@ -143,6 +153,9 @@ mod tests {
             argv: argv.iter().map(ToString::to_string).collect(),
             selector: Vec::new(),
             fan_out: FanOut::PerModule,
+            requires: std::collections::BTreeSet::new(),
+            depends_on: Vec::new(),
+            outputs: Vec::new(),
             workspace_closure: false,
             persistent: false,
             readiness: Readiness::Started,
@@ -212,12 +225,16 @@ mod tests {
             ..CommandConfig::default()
         });
 
-        let structure = adapter.toolchain_probes_for(&TaskIntent::resolve("structure"));
+        let structure = adapter
+            .toolchain_probes_for(&tag(), &TaskIntent::resolve("structure"))
+            .expect("probes");
         assert_eq!(structure.len(), 1);
         assert_eq!(structure[0].program, "ast-grep");
         assert_eq!(structure[0].args, ["--version"]);
 
-        let docs = adapter.toolchain_probes_for(&TaskIntent::resolve("docs-build"));
+        let docs = adapter
+            .toolchain_probes_for(&tag(), &TaskIntent::resolve("docs-build"))
+            .expect("probes");
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].program, "mdbook");
     }
@@ -239,7 +256,9 @@ mod tests {
             common,
             ..CommandConfig::default()
         });
-        let probes = adapter.toolchain_probes_for(&TaskIntent::resolve("structure"));
+        let probes = adapter
+            .toolchain_probes_for(&tag(), &TaskIntent::resolve("structure"))
+            .expect("probes");
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].program, "bazel");
     }
@@ -256,7 +275,9 @@ mod tests {
         });
         // No `deploy` task is declared; the probe falls back to the ecosystem
         // default (first declared task's program) rather than panicking.
-        let probes = adapter.toolchain_probes_for(&TaskIntent::resolve("deploy"));
+        let probes = adapter
+            .toolchain_probes_for(&tag(), &TaskIntent::resolve("deploy"))
+            .expect("probes");
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].program, "ast-grep");
     }

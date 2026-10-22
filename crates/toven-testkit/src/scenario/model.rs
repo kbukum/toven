@@ -18,6 +18,8 @@ pub struct Scenario {
     /// Environment overrides the engine applies to every step, *on top of* its
     /// deterministic base (pinned clock, scoped cache, `LC_ALL`, `TERM`) — a
     /// scenario that overrides a base pin does so deliberately and visibly.
+    /// `<REPO>` in a value expands to the materialized repo root, so a
+    /// scenario can put stand-in tools from its fixture on `PATH`.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     /// Optional scripted git history materialized before any step runs.
@@ -37,6 +39,12 @@ pub enum Requires {
     Cargo,
     /// The Go toolchain (`go`).
     Go,
+    /// The Node.js runtime (`node`).
+    Node,
+    /// The npm package manager (`npm`).
+    Npm,
+    /// The Bun runtime and package manager (`bun`).
+    Bun,
     /// The `cargo-cyclonedx` SBOM plugin, probed as a binary on `PATH`.
     #[serde(rename = "cargo-cyclonedx")]
     CargoCyclonedx,
@@ -52,6 +60,9 @@ impl Requires {
         match self {
             Self::Cargo => "cargo",
             Self::Go => "go",
+            Self::Node => "node",
+            Self::Npm => "npm",
+            Self::Bun => "bun",
             Self::CargoCyclonedx => "cargo-cyclonedx",
             Self::CyclonedxGomod => "cyclonedx-gomod",
         }

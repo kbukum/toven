@@ -1,0 +1,4 @@
+{"kind":"publish","module":"js:packages-core","publication":"registry","registry":"npmjs","version":"0.2.0-beta.1","decision":"would-publish"}
+{"kind":"publish","module":"js:packages-ui","publication":"registry","registry":"npmjs","version":"0.3.1-beta.1","decision":"would-publish"}
+{"kind":"publish","module":"js:packages-cli","publication":"registry","registry":"npmjs","version":"1.2.1-beta.1","decision":"would-publish"}
+{"kind":"publish","module":"js:packages-docs","publication":"tag-only","registry":null,"version":"0.0.1-beta.1","decision":"tag-only"}

@@ -1,0 +1,11 @@
+run lint on js-tasks
+skip: js:packages-app (lint needs script:lint)
+skip: js:packages-core (lint needs script:lint)
+plan: 1 unit in 1 wave
+  ok js:acme-tasks#lint
+summary
+      planned:  1
+          ran:  1
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

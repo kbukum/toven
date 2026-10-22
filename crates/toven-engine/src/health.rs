@@ -1,16 +1,19 @@
-//! Project health checks: evaluate `[doctor.checks.<id>]` predicates.
+//! Project health checks: the ecosystems' own checks, then the
+//! `[doctor.checks.<id>]` predicates.
 //!
-//! Each check is a path that must exist or an argv command that must succeed
-//! (and, with `version`, print that text). Commands run through the injected
+//! An ecosystem check arrives decided (an offline file check) or as a command.
+//! A configured check is a path that must exist or an argv command. A command
+//! must succeed (and, with `version`, print that text). Commands run through the injected
 //! [`ToolRunner`] with a bounded timeout and output cap, never a shell. This
 //! module classifies outcomes; the CLI reports them.
 
+use std::path::Path;
 use std::time::Duration;
 
 use rskit_errors::AppResult;
 use toven_core::config::{DoctorCheckConfig, DoctorConfig};
 use toven_model::AbsPath;
-use toven_ports::{ToolInvocation, ToolRunner};
+use toven_ports::{CheckVerdict, EcosystemCheck, ToolInvocation, ToolRunner};
 
 /// How long one check command may run.
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
@@ -22,11 +25,12 @@ const CHECK_OUTPUT_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CheckOutcome {
-    /// The check id (`[doctor.checks.<id>]`).
+    /// The check id: `<ecosystem>/<id>` for an ecosystem check, or the
+    /// `[doctor.checks.<id>]` key.
     pub id: String,
     /// Why the check failed; `None` when it passed.
     pub failure: Option<String>,
-    /// The configured fix hint.
+    /// The fix hint.
     pub fix: Option<String>,
 }
 
@@ -38,7 +42,9 @@ impl CheckOutcome {
     }
 }
 
-/// Run the checks `profiles` selects, reporting each as it completes.
+/// Run every ecosystem check, then the configured checks `profiles` selects,
+/// reporting each as it completes. Ecosystem checks belong to no profile and
+/// always run.
 ///
 /// # Errors
 /// Returns a typed error for an unknown profile, or propagates a failure from
@@ -47,11 +53,32 @@ pub fn run_checks(
     project_root: &AbsPath,
     doctor: &DoctorConfig,
     profiles: &[String],
+    ecosystem: &[EcosystemCheck],
     runner: &dyn ToolRunner,
     on_check: &mut dyn FnMut(&CheckOutcome) -> AppResult<()>,
 ) -> AppResult<Vec<CheckOutcome>> {
+    let selected = doctor.selected(profiles)?;
     let mut outcomes = Vec::new();
-    for (id, check) in doctor.selected(profiles)? {
+    for check in ecosystem {
+        let failure = match &check.verdict {
+            CheckVerdict::Passed => None,
+            CheckVerdict::Failed(reason) => Some(reason.clone()),
+            CheckVerdict::Command { argv, dir, version } => run_command(
+                &project_root.as_path().join(dir.as_path()),
+                argv,
+                version.as_deref(),
+                runner,
+            ),
+        };
+        let outcome = CheckOutcome {
+            id: check.id.clone(),
+            failure,
+            fix: check.fix.clone(),
+        };
+        on_check(&outcome)?;
+        outcomes.push(outcome);
+    }
+    for (id, check) in selected {
         let outcome = CheckOutcome {
             id: id.to_string(),
             failure: evaluate(project_root, check, runner),
@@ -72,9 +99,25 @@ fn evaluate(
     if let Some(path) = &check.path {
         return (!project_root.as_path().join(path).exists()).then(|| format!("{path} is missing"));
     }
-    let program = check.argv.first().map_or("", String::as_str);
-    let invocation = ToolInvocation::new(check.argv.clone())
-        .with_working_dir(project_root.as_path())
+    run_command(
+        project_root.as_path(),
+        &check.argv,
+        check.version.as_deref(),
+        runner,
+    )
+}
+
+/// The failure reason for one command check run in `dir`, or `None` when it
+/// succeeds and prints `version`.
+fn run_command(
+    dir: &Path,
+    argv: &[String],
+    version: Option<&str>,
+    runner: &dyn ToolRunner,
+) -> Option<String> {
+    let program = argv.first().map_or("", String::as_str);
+    let invocation = ToolInvocation::new(argv.to_vec())
+        .with_working_dir(dir)
         .with_timeout(CHECK_TIMEOUT)
         .with_max_output_bytes(CHECK_OUTPUT_BYTES);
     let outcome = match runner.run(&invocation) {
@@ -99,12 +142,9 @@ fn evaluate(
             .find(|line| !line.trim().is_empty())
             .map(|line| format!(": {}", line.trim()))
             .unwrap_or_default();
-        return Some(format!(
-            "`{}` failed ({code}){reason}",
-            check.argv.join(" ")
-        ));
+        return Some(format!("`{}` failed ({code}){reason}", argv.join(" ")));
     }
-    let version = check.version.as_deref()?;
+    let version = version?;
     let printed = format!("{}{}", outcome.stdout, outcome.stderr);
     if prints_version(&printed, version) {
         return None;
@@ -134,7 +174,8 @@ fn prints_version(printed: &str, version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use toven_core::config::{DoctorCheckConfig, DoctorConfig};
-    use toven_model::AbsPath;
+    use toven_model::{AbsPath, RepoPath};
+    use toven_ports::{CheckVerdict, EcosystemCheck};
     use toven_testkit::{FakeToolRunner, TestWorkspace};
 
     use super::run_checks;
@@ -162,7 +203,7 @@ mod tests {
         runner: &FakeToolRunner,
         root: &AbsPath,
     ) -> Vec<Option<String>> {
-        run_checks(root, config, &[], runner, &mut |_| Ok(()))
+        run_checks(root, config, &[], &[], runner, &mut |_| Ok(()))
             .unwrap()
             .into_iter()
             .map(|outcome| outcome.failure)
@@ -251,6 +292,44 @@ mod tests {
         assert_eq!(
             failures(&config, &runner, &root),
             [None, Some("target/NOPE is missing".to_string())]
+        );
+    }
+
+    #[test]
+    fn ecosystem_checks_run_first_and_command_checks_run_in_their_directory() {
+        let workspace = TestWorkspace::new("doctor-checks-ecosystem");
+        let root = AbsPath::new(workspace.path()).unwrap();
+        let ecosystem = [
+            EcosystemCheck::new("js/install", CheckVerdict::Failed("stale".to_string()))
+                .with_fix("npm ci"),
+            EcosystemCheck::new("js/ok", CheckVerdict::Passed),
+            EcosystemCheck::new(
+                "js/web/package-manager",
+                CheckVerdict::Command {
+                    argv: vec!["pnpm".to_string(), "--version".to_string()],
+                    dir: RepoPath::new("web").unwrap(),
+                    version: Some("10.2.0".to_string()),
+                },
+            ),
+        ];
+        let config = doctor(vec![("go", command(None))]);
+        let runner = FakeToolRunner::new().with_stdout("9.15.0\n");
+
+        let outcomes =
+            run_checks(&root, &config, &[], &ecosystem, &runner, &mut |_| Ok(())).unwrap();
+
+        let ids: Vec<&str> = outcomes.iter().map(|outcome| outcome.id.as_str()).collect();
+        assert_eq!(ids, ["js/install", "js/ok", "js/web/package-manager", "go"]);
+        assert_eq!(outcomes[0].failure.as_deref(), Some("stale"));
+        assert_eq!(outcomes[0].fix.as_deref(), Some("npm ci"));
+        assert!(outcomes[1].passed());
+        assert_eq!(
+            outcomes[2].failure.as_deref(),
+            Some("expected 10.2.0, found: 9.15.0")
+        );
+        assert_eq!(
+            runner.requests()[0].working_dir(),
+            Some(workspace.path().join("web").as_path())
         );
     }
 }

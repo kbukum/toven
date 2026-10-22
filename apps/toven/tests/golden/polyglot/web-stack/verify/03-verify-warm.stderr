@@ -1,0 +1,25 @@
+run build,lint,check,typecheck,test on web-stack-polyglot
+skip: js:gen-ts (build needs script:build)
+skip: js:gen-ts (lint needs script:lint)
+skip: js:web (check needs script:check)
+skip: js:gen-ts (typecheck needs script:typecheck)
+plan: 13 units in 3 waves
+  cached command:proto#build
+  cached go:api#build
+  cached js:web#build
+  cached go:api#lint
+  cached js:web#lint
+  cached command:proto#check
+  cached go:api#check
+  cached js:web#typecheck
+  cached command:proto#test
+  cached go:api#test
+  cached js:gen-ts#check
+  cached js:gen-ts#test
+  cached js:web#test
+summary
+      planned:  13
+          ran:  0
+       cached:  13
+  duration-ms:  <DUR>
+       status:  ok

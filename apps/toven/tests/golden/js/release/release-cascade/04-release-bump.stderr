@@ -1,0 +1,16 @@
+Release bump
+  checking js:packages-core…
+  release js:packages-core: 0.1.0 → 0.2.0 (minor)
+  checking js:release-train…
+  release js:release-train: no change (unreleased)
+  checking js:packages-ui…
+  release js:packages-ui: 0.3.0 → 0.3.1 (patch)
+  checking js:packages-cli…
+  release js:packages-cli: 1.2.0 → 1.2.1 (patch)
+  checking js:packages-docs…
+  release js:packages-docs: 0.0.0 → 0.0.1 (patch)
+  release js:packages-core: staged 0.2.0
+  release js:packages-ui: staged 0.3.1
+  release js:packages-cli: staged 1.2.1
+  release js:packages-docs: staged 0.0.1
+    Finished release: 4 staged

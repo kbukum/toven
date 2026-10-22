@@ -10,10 +10,12 @@ use crate::federation::baseline::MemberVcsReaders;
 
 use crate::plan::configure::MemberAdapters;
 use crate::plan::discover::Federation;
+use crate::plan::graph::GroupIndex;
 use crate::plan::request::{PlanRequest, Selection};
+use crate::plan::schedule::unknown_task_error;
 
 use super::changed::changed_for_members;
-use super::select::explicit_seeds;
+use super::select::{ExplicitSeeds, explicit_seeds};
 use crate::plan::ownership::{AttributionPolicy, changed_seeds, unclassified_paths};
 
 /// The resolved active module set plus any forced-full-activation diagnostic.
@@ -30,6 +32,9 @@ pub struct ActiveModules {
     pub modules: BTreeSet<ModuleKey>,
     /// Changed paths that forced full activation (empty when not forced).
     pub(crate) full_activation: Vec<String>,
+    /// Modules an explicit selection named exactly; scheduling rejects one
+    /// that is not eligible for the task instead of skipping it.
+    pub(crate) named: BTreeSet<ModuleKey>,
 }
 
 /// Resolve the active module set for this request.
@@ -54,6 +59,7 @@ pub fn active_modules(
     request: &PlanRequest,
     graph: &Graph,
     federation: &Federation,
+    groups: &GroupIndex,
     vcs: &MemberVcsReaders<'_>,
 ) -> AppResult<ActiveModules> {
     match &request.selection {
@@ -63,7 +69,8 @@ pub fn active_modules(
             include_dependents,
             include_dependencies,
         } => {
-            let seeds = explicit_seeds(targets, graph, federation)?;
+            let ExplicitSeeds { seeds, named } =
+                explicit_seeds(targets, graph, federation, groups)?;
             let mut active = seeds.clone();
             if *include_dependencies {
                 active.extend(
@@ -73,7 +80,11 @@ pub fn active_modules(
             if *include_dependents {
                 active.extend(graph.closure(&seeds, dependents_filter(&request.intent))?);
             }
-            Ok(ActiveModules::from_set(active))
+            Ok(ActiveModules {
+                modules: active,
+                full_activation: Vec::new(),
+                named,
+            })
         }
         Selection::Changed(spec) => {
             let changed = changed_for_members(vcs, spec.as_ref())?;
@@ -95,6 +106,7 @@ impl ActiveModules {
         Self {
             modules,
             full_activation: Vec::new(),
+            named: BTreeSet::new(),
         }
     }
 }
@@ -128,6 +140,7 @@ fn resolve_changed(
     Ok(ActiveModules {
         modules,
         full_activation,
+        named: BTreeSet::new(),
     })
 }
 
@@ -154,18 +167,19 @@ pub enum ExplicitScope {
 /// (all-modules or changed) selection this keeps just the modules whose
 /// ecosystem's authoritative config task table declares `intent.name()`, so the
 /// task runs wherever it is defined instead of failing every active ecosystem
-/// that happens to lack it. A task whose `modules` list is set also drops the
-/// modules it does not name.
+/// that happens to lack it. Whether a defining module is *eligible* (the task's
+/// `modules` list and `requires`) is decided at scheduling, which reports the
+/// skips.
 ///
 /// Two behaviours are deliberately preserved:
 /// - Under [`ExplicitScope::Strict`] (a single task) an
 ///   [`Explicit`](Selection::Explicit) selection is returned unchanged — a
-///   user who names a target that lacks the task (or that the task's `modules`
-///   excludes) should see a typed scheduling error, not a silently empty plan.
+///   user who names a target that lacks the task, or that the task cannot run
+///   on, should see a typed scheduling error, not a silently empty plan.
 ///   Under [`ExplicitScope::Narrow`] (one task of a list or set) the explicit
-///   selection narrows like a broad one, so `build,lint -m worker` runs the
-///   build even though `lint` is scoped to other modules; the caller rejects a
-///   list in which no task applies to any selected module.
+///   selection narrows like a broad one and stops counting as named, so
+///   `build,lint -m worker` runs the build and reports `lint` as skipped on
+///   `worker`; the caller rejects a list that plans nothing on the selection.
 /// - When *no* active ecosystem defines the task the set is returned unchanged,
 ///   so scheduling raises that same unknown-task error (and the CLI its typo
 ///   hint) exactly as before. Under [`ExplicitScope::Narrow`] this applies only
@@ -197,31 +211,48 @@ pub fn restrict_to_task_defining(
         .filter(|key| task_entry(adapters, key, wanted).is_some())
         .cloned()
         .collect();
-    // No active ecosystem defines the task: keep the set so scheduling raises
-    // the unknown-task error. In a list, a task some other ecosystem defines
-    // simply has nothing to run on the selected modules.
-    if defining.is_empty() {
+    // No active ecosystem defines the task. In a list, a task some other
+    // ecosystem defines simply has nothing to run on the selected modules;
+    // otherwise the task is unknown across the whole selection.
+    if defining.is_empty() && !active.modules.is_empty() {
         let defined_elsewhere = explicit == ExplicitScope::Narrow
             && adapters
                 .iter()
                 .any(|(_, _, adapter)| adapter.common().tasks.contains_key(wanted));
         if !defined_elsewhere {
-            return Ok(active);
+            return Err(unknown_in_selection(&active.modules, adapters, request));
         }
     }
-    // A task limited to some modules skips the rest; that may leave nothing to run.
-    let applicable = defining
-        .into_iter()
-        .filter(|key| {
-            task_entry(adapters, key, wanted).is_some_and(|entry| {
-                entry.modules.is_empty() || entry.modules.contains(&key.module().name)
-            })
-        })
-        .collect();
     Ok(ActiveModules {
-        modules: applicable,
+        modules: defining,
         full_activation: active.full_activation,
+        // A list never fails on one task's ineligible module; it reports the skip.
+        named: match explicit {
+            ExplicitScope::Strict => active.named,
+            ExplicitScope::Narrow => BTreeSet::new(),
+        },
     })
+}
+
+/// The unknown-task error for a selection where no module's ecosystem defines
+/// the task: it names every selected ecosystem and suggests from all of their
+/// task names.
+fn unknown_in_selection(
+    modules: &BTreeSet<ModuleKey>,
+    adapters: &MemberAdapters,
+    request: &PlanRequest,
+) -> AppError {
+    let mut ecosystems = BTreeSet::new();
+    let mut names = BTreeSet::new();
+    for key in modules {
+        let ecosystem = &key.module().ecosystem;
+        ecosystems.insert(ecosystem.as_str());
+        if let Some(adapter) = adapters.get(key.member(), ecosystem) {
+            names.extend(adapter.common().tasks.keys().map(String::as_str));
+        }
+    }
+    let ecosystems: Vec<&str> = ecosystems.into_iter().collect();
+    unknown_task_error(&ecosystems, &request.intent, names)
 }
 
 /// The config entry for `task` in the adapter that owns `key`, if it declares one.

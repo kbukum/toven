@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid ecosystems.command.tasks.build.depends_on: task prerequisites form a cycle: build -> test -> build. Remove one of these `depends_on` entries.

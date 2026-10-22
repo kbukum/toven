@@ -1,0 +1,37 @@
+# Task prerequisites: `test` and `build` declare `depends_on = ["^build"]`, so
+# testing `app` first builds `core`, then `lib`, each in its own wave. `build`
+# declares `outputs`, so a cached build replays only while `dist/out` exists:
+# the warm run hits every unit, and after `lib`'s output is removed only `lib`
+# builds again while `core` and `app` still replay.
+repo: command/prerequisites
+steps:
+  - id: 01-plan-all
+    argv: [plan, test]
+    stderr: { match: normalized }
+  - id: 02-explain-app
+    argv: [--module, "command:app", explain, test]
+    stdout: { match: normalized }
+  - id: 03-cold
+    argv: [--module, "command:app", test]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: core/dist/out
+      - file_exists: lib/dist/out
+      - path_absent: app/dist/out
+      - cache_entries: "==3"
+  - id: 04-warm
+    argv: [--module, "command:app", test]
+    stderr: { match: normalized }
+    effects:
+      - cache_entries: "==3"
+  - id: 05-clean-lib
+    argv: [--no-cache, --module, "command:lib", clean]
+    stderr: { match: normalized }
+    effects:
+      - path_absent: lib/dist/out
+  - id: 06-rebuild-stale
+    argv: [--module, "command:app", test]
+    stderr: { match: normalized }
+    effects:
+      - file_exists: lib/dist/out
+      - cache_entries: "==3"

@@ -1,0 +1,21 @@
+run coverage on plainworks-shape
+skip: js:plainworks-shape (coverage needs script:test)
+plan: 5 units in 1 wave
+  ok js:apps-host#coverage
+  ok js:internal-vitest-config#coverage
+  ok js:packages-std#coverage
+  ok js:packages-testkit#coverage
+  ok js:packages-ui#coverage
+summary
+      planned:  5
+          ran:  5
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok
+Coverage
+  coverage js:apps-host: passed (line 100.00%)
+  coverage js:internal-vitest-config: passed (line 100.00%)
+  coverage js:packages-std: passed (line 100.00%)
+  coverage js:packages-testkit: passed (line 100.00%)
+  coverage js:packages-ui: passed (line 100.00%)
+    Finished coverage: 5 passed — gate passed

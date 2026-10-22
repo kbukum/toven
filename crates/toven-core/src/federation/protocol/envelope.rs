@@ -10,9 +10,10 @@
 
 use rskit_config::RawValue;
 use serde::{Deserialize, Serialize};
-use toven_model::EcosystemId;
+use toven_model::{AbsPath, EcosystemId, ToolchainTag};
 use toven_ports::{
-    CommonEcosystemConfig, DiscoverRequest, DiscoverResponse, RunStrategy, TaskKind, ToolchainProbe,
+    CommonEcosystemConfig, DiscoverRequest, DiscoverResponse, DoctorScope, RunStrategy, TaskKind,
+    ToolchainProbe,
 };
 
 /// Envelope schema version, bumped on any breaking wire-shape change.
@@ -81,7 +82,8 @@ pub struct Welcome {
 pub struct Capabilities {
     /// Server answers [`Request::Discover`].
     pub discover: bool,
-    /// Server answers [`Request::ToolchainProbe`].
+    /// Server answers [`Request::ToolchainProbe`] and
+    /// [`Request::ToolchainProbes`].
     pub toolchain: bool,
     /// Server answers [`Request::RunStrategy`].
     pub run_strategy: bool,
@@ -136,6 +138,20 @@ pub enum Request {
     Discover(DiscoverRequest),
     /// Mirror of `toolchain_probe`.
     ToolchainProbe,
+    /// Mirror of `toolchain_probes_for`: the probes one workspace's task needs.
+    ToolchainProbes {
+        /// The workspace's discovered toolchain tag.
+        toolchain: ToolchainTag,
+        /// The addressed task name.
+        task: String,
+        /// The addressed task's resolved kind.
+        kind: TaskKind,
+    },
+    /// Mirror of `doctor`: what `toven doctor` audits in the repository.
+    Doctor {
+        /// The repository root.
+        project_root: AbsPath,
+    },
     /// Mirror of `run_strategy_default`.
     RunStrategy {
         /// Task kind whose default ordering is requested.
@@ -154,6 +170,10 @@ pub enum Response {
     Discover(DiscoverResponse),
     /// Result of `toolchain_probe`.
     ToolchainProbe(ToolchainProbe),
+    /// Result of `toolchain_probes_for`.
+    ToolchainProbes(Vec<ToolchainProbe>),
+    /// Result of `doctor`.
+    Doctor(DoctorScope),
     /// Result of `run_strategy_default`.
     RunStrategy(RunStrategy),
     /// Acknowledgement of [`Request::Shutdown`].
@@ -190,7 +210,7 @@ impl WireError {
 #[cfg(test)]
 mod tests {
     use super::{Capabilities, Hello, Request, Response, WireError};
-    use toven_model::EcosystemId;
+    use toven_model::{EcosystemId, ToolchainTag};
     use toven_ports::DiscoverRequest;
 
     fn rust() -> EcosystemId {
@@ -225,6 +245,58 @@ mod tests {
             rskit_errors::ErrorCode::InvalidInput.as_str(),
             "bad subtree",
         ));
+        let json = serde_json::to_string(&response).expect("serialize");
+        let back: Response = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(response, back);
+    }
+
+    #[test]
+    fn toolchain_probes_round_trip_through_json() {
+        let request = Request::ToolchainProbes {
+            toolchain: ToolchainTag::new("pnpm"),
+            task: "test".to_string(),
+            kind: toven_ports::TaskKind::Test,
+        };
+        let json = serde_json::to_string(&request).expect("serialize");
+        let back: Request = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(request, back);
+
+        let response = Response::ToolchainProbes(vec![toven_ports::ToolchainProbe::new(
+            "pnpm",
+            "pnpm",
+            vec!["--version".to_string()],
+        )]);
+        let json = serde_json::to_string(&response).expect("serialize");
+        let back: Response = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(response, back);
+    }
+
+    #[test]
+    fn doctor_round_trips_through_json() {
+        let request = Request::Doctor {
+            project_root: toven_model::AbsPath::new("/repo").expect("absolute"),
+        };
+        let json = serde_json::to_string(&request).expect("serialize");
+        let back: Request = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(request, back);
+
+        let scope = toven_ports::DoctorScope::new(vec![ToolchainTag::new("bun")])
+            .with_check(
+                toven_ports::EcosystemCheck::new(
+                    "install",
+                    toven_ports::CheckVerdict::Failed("node_modules is missing".to_string()),
+                )
+                .with_fix("bun install --frozen-lockfile"),
+            )
+            .with_check(toven_ports::EcosystemCheck::new(
+                "package-manager",
+                toven_ports::CheckVerdict::Command {
+                    argv: vec!["bun".to_string(), "--version".to_string()],
+                    dir: toven_model::RepoPath::new(".").expect("repo path"),
+                    version: Some("1.3.6".to_string()),
+                },
+            ));
+        let response = Response::Doctor(scope);
         let json = serde_json::to_string(&response).expect("serialize");
         let back: Response = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(response, back);

@@ -1,0 +1,23 @@
+# JS test runners write LCOV paths relative to the package they ran in. Each
+# profile is staged as `js-<module>/lcov.info`, so Toven resolves its paths
+# against that package: `app`'s own file fails the line floor, `app`'s
+# measurement of `../core/src/index.js` lifts `core` to full line coverage, and
+# the root package, whose directory holds every file, is credited nothing.
+# Against the `base` tag only `core` changed, so the changed-line floor applies
+# to `core`'s file alone.
+repo: js/coverage
+requires: [node, npm]
+git:
+  commits:
+    - msg: "change core after the base tag"
+      touch: ["packages/core/src/index.js"]
+  tags:
+    - { name: base, at: 0 }
+steps:
+  - id: 01-coverage
+    argv: [coverage]
+    exit: 1
+    stderr: { match: normalized }
+  - id: 02-changed-lines
+    argv: [coverage, --base, base, --line, "50"]
+    stderr: { match: normalized }

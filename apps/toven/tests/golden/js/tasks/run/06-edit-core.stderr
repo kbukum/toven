@@ -1,0 +1,9 @@
+run edit on js-tasks
+plan: 1 unit in 1 wave
+  ok js:packages-core#edit
+summary
+      planned:  1
+          ran:  1
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

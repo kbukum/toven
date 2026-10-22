@@ -1,0 +1,2 @@
+# Auto roots, skipping the `examples/` tree.
+exclude = ["examples"]

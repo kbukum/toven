@@ -1,0 +1,37 @@
+# Three command modules chained `app -> lib -> core` for task prerequisites:
+# `test` and `build` both declare `depends_on = ["^build"]`, so testing `app`
+# first builds `core`, then `lib`. `build` declares `outputs`, so a cached build
+# is replayed only while its `dist/out` file still exists.
+[project]
+name = "prerequisites-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "core"
+root = "core"
+
+[[ecosystems.command.modules]]
+name = "lib"
+root = "lib"
+depends_on = ["core"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "app"
+depends_on = ["lib"]
+
+[ecosystems.command.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && echo built > {module.root}/dist/out"]
+outputs = ["dist/out"]
+depends_on = ["^build"]
+
+[ecosystems.command.tasks.test]
+argv = ["echo", "command test {module.name}"]
+depends_on = ["^build"]
+
+# Removes a module's build output so a scenario can prove a cached build whose
+# declared output is gone runs again instead of replaying.
+[ecosystems.command.tasks.clean]
+argv = ["rm", "-rf", "{module.root}/dist"]

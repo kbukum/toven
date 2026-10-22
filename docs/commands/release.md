@@ -369,6 +369,44 @@ Supported Go behavior:
 
 Go release support includes changed-module planning, dependency-graph cascades, reachable root and nested tag discovery, and prerelease tags. Go releases are tag-only; `registry` is rejected for Go. A module with no reachable release tag fails closed instead of using a synthetic `0.0.0` version, so the first Go release needs an explicit versioning path before mutation.
 
+## JavaScript release policy
+
+Supported JavaScript behavior:
+
+- Each `package.json` package gets an independent version. Tags default to npm's `{package}@{version}` convention, for example `@scope/core@1.2.0`; `tag_format` can change them.
+- Change detection anchors on the higher of the registry's highest published version and the package's own tag.
+- `release bump` rewrites `version` and internal dependency ranges in place and leaves the rest of the file as written. A plain range keeps its operator (`^1.0.0` becomes `^2.0.0`). A complex range that still matches the new version stays; one that no longer matches fails before any write. `workspace:`, path, alias, and dist-tag specs never change.
+- After the manifests change, Toven refreshes the root's lockfile without running scripts (`npm install --package-lock-only`, `pnpm install --lockfile-only`, `yarn install --mode=update-lockfile`, or `bun install --lockfile-only`) and stages it when it changed, so a frozen install still passes. Yarn 1 records no workspace versions and needs no refresh.
+- Packages publish in dependency order. The root's package manager packs each package, so `workspace:` and `catalog:` ranges resolve the way that manager resolves them; npm publishes the packed tarball. A root can name its own pack command in `[ecosystems.js.pack]`; Toven still requires exactly one tarball per package. See [release config](../config/release.md#registry-tag-only-and-excluded-modules).
+- A stable version publishes under the `latest` dist-tag. A prerelease publishes under its channel (`1.2.0-beta.1` under `beta`), never under `latest`. A prerelease whose first identifier is a number or `latest` fails before packing.
+- `"private": true` packages, including the workspace root, stay out of the release, the way npm, pnpm, Yarn, and Changesets skip them. Their ranges on released packages still move, so a frozen install keeps working. Set `exclude = false` to version and tag them without publishing.
+- A version the registry already has reports `already-published`, so a re-run is safe.
+- `release sbom` writes a CycloneDX SBOM with `npm sbom` for npm roots. Other package managers have no built-in exporter; delegate the phase for them.
+
+Credentials and provenance:
+
+- With `token_env`, Toven hands that variable's value to npm as the registry's auth-token setting (`npm_config_//<registry host and path>/:_authToken`) in the child environment, never in argv. Publishing fails before it starts when the variable is unset or empty.
+- Without `token_env`, npm uses its own credentials: an `.npmrc` token, or trusted publishing (OIDC) in CI, which needs npm 11.5.1 or later and Node.js 22.14.0 or later. Toven runs `npm publish`, so the package's trusted publisher must allow direct publishing; npm sets new trusted publishers to allow only `npm stage publish` by default.
+- Toven passes no provenance flag. Trusted publishing attaches provenance automatically. For token publishes from CI, set `NPM_CONFIG_PROVENANCE=true`.
+- Published-version queries (`npm view`) use the root's npm configuration, including `.npmrc` scoped registries, not `release.registry`. `offline = true` skips them.
+
+```toml
+[ecosystems.js.release]
+registry = "npmjs"
+token_env = "NPM_TOKEN"
+
+[ecosystems.js.release.prerelease]
+channels = ["alpha", "beta", "rc"]
+
+# The workspace root has no version and ships nothing.
+[modules."js:my-monorepo".release]
+exclude = true
+```
+
+### Changesets coexistence
+
+A repository that keeps Changesets can let Changesets write the versions while Toven tags and publishes them. Set `strategy = "manifest"` and `dependent_version = "upgrade"`. Toven then cuts exactly the version in each `package.json` when it is ahead of the last tag, and only re-floors dependents instead of cutting versions Changesets did not write. Under `manifest`, a package that changed without a new version fails `release tag` and `release publish` closed; add a changeset for it, or exclude it, first.
+
 ## Hosted assets and immutability
 
 When `release.host.forge = "github"`, publication invokes `gh` after tags are pushed and target publication succeeds. Authentication comes from ambient `gh` configuration, `GH_TOKEN`, or `GITHUB_TOKEN`. Secrets are not placed in argv.

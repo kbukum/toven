@@ -1,0 +1,5 @@
+  tool node (node): present (v24.0.0)
+  tool npm (npm): present (11.0.0)
+  check js/install: dependencies are not installed (fix: npm ci)
+  check js/package-manager: expected 10.9.0, found: 11.0.0 (fix: run `corepack enable`, or install npm@10.9.0)
+doctor: 2 checked, 0 missing, 2 checks, 2 failed

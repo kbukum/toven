@@ -25,7 +25,7 @@ A step may add its own `requires:` gate for tools beyond the scenario-level gate
 # apps/toven/tests/golden/command/single/apply-cache-session/scenario.yaml
 repo: command/single          # a fixture under crates/toven-testkit/fixtures/repos/
 requires: [cargo]             # optional toolchain gate; absent tool => skip green
-env: { TOVEN_LOG: warn }      # optional env overrides on top of the deterministic base
+env: { TOVEN_LOG: warn }      # optional env overrides on top of the deterministic base; `<REPO>` expands to the repo root
 git:                          # optional scripted history, applied after the import commit
   commits:
     - msg: touch app

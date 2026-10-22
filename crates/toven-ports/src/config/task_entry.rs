@@ -1,12 +1,14 @@
 //! `TaskEntry` — the complete config projection of a [`Task`], the
 //! authoritative source of an ecosystem's runnable tasks.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use rskit_errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
+use toven_model::Capability;
 
-use crate::task::{FanOut, Readiness, Task, TaskKind, TaskOrigin};
+use crate::task::{FanOut, Readiness, Task, TaskDependency, TaskKind, TaskOrigin};
 
 /// One `[ecosystems.<id>.tasks.<name>]` entry: a complete, authored task.
 ///
@@ -35,6 +37,20 @@ pub struct TaskEntry {
     /// The intrinsic fan-out ceiling.
     #[serde(default = "default_fan_out")]
     pub fan_out: FanOut,
+    /// Module capabilities the task needs (`requires = ["script:test"]`).
+    /// Modules lacking one are skipped by default and affected runs; naming
+    /// one explicitly is an error.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub requires: BTreeSet<Capability>,
+    /// Tasks that must finish first: `"build"` on the same module, `"^build"`
+    /// on the module's dependencies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<TaskDependency>,
+    /// Files or directories, relative to each module root, the task produces
+    /// (`outputs = ["dist"]`). A cache hit counts only while they are present
+    /// and unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<String>,
     /// Whether this task's whole-workspace invocation resolves its own
     /// cross-workspace dependency closure, so co-scheduling it inside an
     /// irreducible facade back-dependency cycle is sound.
@@ -137,6 +153,9 @@ impl TaskEntry {
         task.origin = TaskOrigin::Project;
         task.workspace_closure = self.workspace_closure;
         task.selector.clone_from(&self.selector);
+        task.requires.clone_from(&self.requires);
+        task.depends_on.clone_from(&self.depends_on);
+        task.outputs.clone_from(&self.outputs);
         task.cache_args = self.cache_args;
         task.cacheable = self.cacheable;
         task.fail_if_output = self.fail_if_output;
@@ -170,6 +189,9 @@ mod tests {
             argv: argv.iter().map(ToString::to_string).collect(),
             selector: Vec::new(),
             fan_out: FanOut::PerModule,
+            requires: std::collections::BTreeSet::new(),
+            depends_on: Vec::new(),
+            outputs: Vec::new(),
             workspace_closure: false,
             persistent: false,
             readiness: super::Readiness::Started,
@@ -234,6 +256,24 @@ mod tests {
         assert!(
             error.to_string().contains("ecosystems.rust.tasks.test"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn requires_round_trips_and_materializes() {
+        let parsed: TaskEntry =
+            toml::from_str("argv = [\"bun\", \"run\", \"test\"]\nrequires = [\"script:test\"]\n")
+                .expect("deserialize");
+        let task = parsed.materialize("js", "test").expect("materializes");
+        let names: Vec<&str> = task
+            .requires
+            .iter()
+            .map(toven_model::Capability::as_str)
+            .collect();
+        assert_eq!(names, ["script:test"]);
+        assert!(
+            toml::from_str::<TaskEntry>("argv = [\"x\"]\nrequires = [\"\"]\n").is_err(),
+            "an empty capability is rejected at parse time"
         );
     }
 

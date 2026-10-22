@@ -5,6 +5,7 @@
 //! planner stays pure and tests substitute a deterministic store.
 
 use rskit_errors::AppResult;
+use toven_model::RepoPath;
 use toven_ports::CacheStore;
 
 /// A [`CacheStore`] with no records: every lookup is a miss.
@@ -16,7 +17,7 @@ use toven_ports::CacheStore;
 pub struct NullCache;
 
 impl CacheStore for NullCache {
-    fn contains(&self, _key: &str) -> AppResult<bool> {
+    fn contains(&self, _key: &str, _outputs: &[RepoPath]) -> AppResult<bool> {
         Ok(false)
     }
 }

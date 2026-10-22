@@ -1,0 +1,11 @@
+run build,lint,check,typecheck,test on web-stack-polyglot
+skip: js:gen-ts (build needs script:build)
+skip: js:gen-ts (lint needs script:lint)
+skip: js:web (check needs script:check)
+skip: js:gen-ts (typecheck needs script:typecheck)
+plan: 13 units in 3 waves
+summary (dry run — no tasks executed)
+  planned:  13
+      ran:  0
+   cached:  0
+   status:  ok

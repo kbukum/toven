@@ -28,8 +28,10 @@ pub enum PublicationPolicy {
     /// The module is versioned and tagged, and may cut a hosted release, but is
     /// never published to a package registry.
     TagOnly,
-    /// The module is excluded from the release entirely: no version change, no
-    /// tag, no ecosystem target call, and no hosted release.
+    /// The module is excluded from the release: no own version change, no
+    /// tag, no publication, and no hosted release. It still raises its
+    /// floors on released in-repo dependencies so its manifest stays
+    /// installable.
     Excluded,
 }
 

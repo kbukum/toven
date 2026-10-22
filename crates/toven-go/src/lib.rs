@@ -34,6 +34,7 @@ mod adapter;
 mod config;
 mod detect;
 mod discovery;
+mod doctor;
 mod exec;
 mod modules;
 mod provider;

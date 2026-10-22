@@ -1,0 +1,2 @@
+# A listed root that the repository root's workspace patterns also select.
+roots = ["package.json", "libs/ui/package.json"]

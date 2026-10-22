@@ -1,0 +1,39 @@
+# Group override variant: the `artifact` group makes `lib`'s tests also wait
+# for its own build (`depends_on = ["^build", "build"]`); `app` keeps the
+# ecosystem default.
+[project]
+name = "prerequisites-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "core"
+root = "core"
+
+[[ecosystems.command.modules]]
+name = "lib"
+root = "lib"
+depends_on = ["core"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "app"
+depends_on = ["lib"]
+
+
+[ecosystems.command.tasks.build]
+argv = ["sh", "-c", "mkdir -p {module.root}/dist && echo built > {module.root}/dist/out"]
+outputs = ["dist/out"]
+depends_on = ["^build"]
+
+[ecosystems.command.tasks.test]
+argv = ["echo", "command test {module.name}"]
+depends_on = ["^build"]
+
+[groups.artifact]
+ecosystem = "command"
+modules = ["lib"]
+
+[groups.artifact.tasks.test]
+depends_on = ["^build", "build"]

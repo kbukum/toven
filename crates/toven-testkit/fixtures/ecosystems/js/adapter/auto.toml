@@ -1,0 +1,2 @@
+# `roots = "auto"` (the default): discovery derives every JavaScript root.
+roots = "auto"

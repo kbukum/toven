@@ -1,0 +1,9 @@
+
+Affected
+┌──────────────┐
+│ Module       │
+├──────────────┤
+│ rust:app     │
+│ rust:corelib │
+│ rust:util    │
+└──────────────┘

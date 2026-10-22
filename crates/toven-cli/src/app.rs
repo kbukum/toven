@@ -235,7 +235,7 @@ fn dispatch(
         }
         Command::Explain { task } => {
             let project = load(providers, cli, false)?;
-            let selection = task_selection(&cli.execution);
+            let selection = commands::selection::TaskSelection::from(&cli.execution);
             commands::introspect::explain(
                 providers,
                 &project,
@@ -249,13 +249,17 @@ fn dispatch(
                 providers,
                 &project,
                 intents_for(&project, task)?,
-                &task_selection(&cli.execution),
+                &commands::selection::TaskSelection::from(&cli.execution),
                 cli.execution.output,
             )
         }
         Command::Modules => {
             let project = load(providers, cli, false)?;
             commands::introspect::modules(providers, &project, cli.execution.output)
+        }
+        Command::Groups => {
+            let project = load(providers, cli, false)?;
+            commands::introspect::groups(providers, &project, cli.execution.output)
         }
         Command::Graph => {
             let project = load(providers, cli, false)?;
@@ -329,7 +333,7 @@ fn plan_command(
         None,
         cli.execution.jobs,
         cli.execution.compute_budget,
-        &task_selection(&cli.execution),
+        &commands::selection::TaskSelection::from(&cli.execution),
     )
 }
 
@@ -420,7 +424,7 @@ fn run_tasks(
                 execution.view.map(Into::into),
                 execution.jobs,
                 execution.compute_budget,
-                &task_selection(execution),
+                &commands::selection::TaskSelection::from(execution),
             )
         },
     )
@@ -434,16 +438,16 @@ fn run_tasks(
 /// only appended *after* the token failed to resolve as a task, and never
 /// rewrites the invocation — it is advisory text on the already-typed error.
 ///
-/// The predicate matches only the specific missing-task message for the
-/// attempted token (`has no '<name>' task`, the canonical intent name the
-/// scheduler emits), so unrelated `InvalidInput` failures whose text happens to
-/// contain "has no" (for example a config "... has no parent ..." error) never
-/// pick up the hint.
+/// The predicate matches only the planner's typed missing-task error for the
+/// attempted token (its `missing_task` detail, the canonical intent name), so
+/// unrelated `InvalidInput` failures never pick up the hint.
 fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
-    let missing_task = format!("has no '{}' task", intent_for(task).name());
-    if error.code() != rskit_errors::ErrorCode::InvalidInput
-        || !error.message().contains(&missing_task)
-    {
+    let wanted = intent_for(task);
+    let missing = error
+        .details()
+        .get("missing_task")
+        .and_then(serde_json::Value::as_str);
+    if error.code() != rskit_errors::ErrorCode::InvalidInput || missing != Some(wanted.name()) {
         return error;
     }
     let Some(reserved) = grammar::nearest_reserved(task) else {
@@ -461,17 +465,6 @@ fn watch_flags(execution: &ExecutionArgs) -> commands::run::WatchFlags {
         debounce_ms: execution
             .watch_debounce_ms
             .unwrap_or(flags::DEFAULT_WATCH_DEBOUNCE_MS),
-    }
-}
-
-/// The module selection an execution verb runs with.
-fn task_selection(execution: &ExecutionArgs) -> commands::selection::TaskSelection {
-    commands::selection::TaskSelection {
-        baseline: execution.baseline_flags(),
-        modules: execution.module.clone(),
-        workspaces: execution.workspace.clone(),
-        with_dependents: execution.with_dependents,
-        with_dependencies: execution.with_dependencies,
     }
 }
 

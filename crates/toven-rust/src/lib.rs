@@ -24,6 +24,7 @@
 #![allow(clippy::redundant_pub_crate)]
 
 mod adapter;
+mod capabilities;
 mod config;
 mod detect;
 mod discovery;

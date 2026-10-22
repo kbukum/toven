@@ -1,0 +1,12 @@
+
+Modules
+┌───────────────────────────┬───────────┐
+│ Module                    │ Workspace │
+├───────────────────────────┼───────────┤
+│ js:apps-host              │ js        │
+│ js:internal-vitest-config │ js        │
+│ js:packages-std           │ js        │
+│ js:packages-testkit       │ js        │
+│ js:packages-ui            │ js        │
+│ js:plainworks-shape       │ js        │
+└───────────────────────────┴───────────┘

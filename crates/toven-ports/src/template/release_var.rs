@@ -21,13 +21,22 @@ pub enum ReleaseVar {
     Ecosystem,
     /// `{module}` — the releasing module's name (`toven-core`).
     Module,
+    /// `{package}` — the releasing module's registry package name
+    /// (`@acme/core`), or its module name when it declares none.
+    Package,
     /// `{channel}` — the prerelease channel, empty for a stable release.
     Channel,
 }
 
 impl ReleaseVar {
     /// Every placeholder, for [`Template::parse`](rskit_util::Template::parse).
-    pub const ALL: &'static [Self] = &[Self::Version, Self::Ecosystem, Self::Module, Self::Channel];
+    pub const ALL: &'static [Self] = &[
+        Self::Version,
+        Self::Ecosystem,
+        Self::Module,
+        Self::Package,
+        Self::Channel,
+    ];
 }
 
 impl Placeholder for ReleaseVar {
@@ -36,6 +45,7 @@ impl Placeholder for ReleaseVar {
             Self::Version => "version",
             Self::Ecosystem => "ecosystem",
             Self::Module => "module",
+            Self::Package => "package",
             Self::Channel => "channel",
         }
     }

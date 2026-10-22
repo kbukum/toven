@@ -39,4 +39,5 @@ mod unit;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::plan) use entry::{Scheduled, schedule};
+pub(in crate::plan) use entry::{Scheduled, eligible_modules, schedule};
+pub(in crate::plan) use task::unknown_task_error;

@@ -1,0 +1,8 @@
+{
+  "name": "@plain/core",
+  "version": "0.1.0",
+  "description": "Core primitives",
+  "keywords": ["plain", "core"],
+  "main": "index.js",
+  "files": ["index.js"]
+}

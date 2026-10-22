@@ -1,0 +1,17 @@
+# `toven groups` lists declared groups with their description, allowed groups
+# and members; a dependency outside `allow_groups` fails with the owning group.
+repo: rust/workspace-linear
+steps:
+  - id: 01-groups
+    argv: [groups]
+    config: toven.groups.toml
+    stdout: { match: normalized }
+  - id: 02-groups-jsonl
+    argv: [groups, --output, jsonl]
+    config: toven.groups.toml
+    stdout: { match: normalized }
+  - id: 03-layering-violation
+    argv: [groups]
+    config: toven.group-layering.toml
+    exit: 2
+    stderr: { match: normalized }

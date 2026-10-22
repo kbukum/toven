@@ -1,0 +1,12 @@
+# `doctor` on a js root reports a missing install and a package-manager
+# version that differs from the `packageManager` pin, each with its fix. The
+# fixture's stand-in `node` and `npm` come first on PATH, so versions are fixed.
+repo: js/doctor
+env:
+  PATH: "<REPO>/bin:/usr/bin:/bin"
+steps:
+  - id: 01-doctor
+    argv: [doctor]
+    exit: 1
+    stdout: { match: normalized }
+    stderr: { match: normalized }

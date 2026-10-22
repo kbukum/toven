@@ -16,6 +16,7 @@ use toven_ports::{
     TaskEntry, TaskKind, release_config,
 };
 
+use crate::capabilities;
 use crate::config::Manifests;
 use crate::detect::RustFacts;
 use crate::manifests::sibling_lockfile;
@@ -56,7 +57,7 @@ pub(crate) fn render(detection: &Detection, answers: &Answers) -> AppResult<Ecos
         manifests: manifests_for(&selected, &facts),
         coverage: starter_coverage(),
         release: release_config(answers, Some(CRATES_IO_REGISTRY)),
-        tasks: task_table(use_nextest, &shared_inputs),
+        tasks: task_table(use_nextest, &shared_inputs)?,
     };
     let table = Table::try_from(&body).map_err(|error| {
         AppError::new(ErrorCode::Internal, "failed to encode rust fragment").with_cause(error)
@@ -120,7 +121,10 @@ fn selected_manifests(facts: &RustFacts, answers: &Answers) -> Vec<String> {
 }
 
 /// Build the complete cargo task table, honoring the chosen test runner.
-fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, TaskEntry> {
+fn task_table(
+    use_nextest: bool,
+    shared_inputs: &[String],
+) -> AppResult<BTreeMap<String, TaskEntry>> {
     let test_argv = if use_nextest {
         vec![
             "cargo".to_string(),
@@ -164,6 +168,9 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
             argv: test_argv,
             selector: fan_out_selector(),
             fan_out: FanOut::Batchable,
+            requires: std::collections::BTreeSet::new(),
+            depends_on: Vec::new(),
+            outputs: Vec::new(),
             workspace_closure: false,
             persistent: false,
             readiness: toven_ports::Readiness::Started,
@@ -177,9 +184,9 @@ fn task_table(use_nextest: bool, shared_inputs: &[String]) -> BTreeMap<String, T
     );
     tasks.insert("doc".to_string(), doc_entry(shared_inputs));
     tasks.insert("doctest".to_string(), doctest_entry(shared_inputs));
-    tasks.insert("run".to_string(), run_entry(shared_inputs));
+    tasks.insert("run".to_string(), run_entry(shared_inputs)?);
     tasks.insert("coverage".to_string(), coverage_entry(shared_inputs));
-    tasks
+    Ok(tasks)
 }
 
 /// The starter `[ecosystems.rust].coverage` block onboarding authors.
@@ -220,6 +227,9 @@ fn coverage_entry(shared_inputs: &[String]) -> TaskEntry {
         ],
         selector: Vec::new(),
         fan_out: FanOut::WholeWorkspace,
+        requires: std::collections::BTreeSet::new(),
+        depends_on: Vec::new(),
+        outputs: Vec::new(),
         workspace_closure: true,
         persistent: false,
         readiness: toven_ports::Readiness::Started,
@@ -296,6 +306,9 @@ fn fan_out_entry(subcommand: &str, fan_out: FanOut, shared_inputs: &[String]) ->
         argv: fan_out_argv(subcommand),
         selector: fan_out_selector(),
         fan_out,
+        requires: std::collections::BTreeSet::new(),
+        depends_on: Vec::new(),
+        outputs: Vec::new(),
         workspace_closure: false,
         persistent: false,
         readiness: toven_ports::Readiness::Started,
@@ -325,6 +338,9 @@ fn whole_workspace_entry(subcommand: &str, extra: &[&str], shared_inputs: &[Stri
         argv,
         selector: Vec::new(),
         fan_out: FanOut::WholeWorkspace,
+        requires: std::collections::BTreeSet::new(),
+        depends_on: Vec::new(),
+        outputs: Vec::new(),
         workspace_closure: true,
         persistent: false,
         readiness: toven_ports::Readiness::Started,
@@ -377,6 +393,9 @@ fn vuln_entry(shared_inputs: &[String]) -> TaskEntry {
         ],
         selector: Vec::new(),
         fan_out: FanOut::WholeWorkspace,
+        requires: std::collections::BTreeSet::new(),
+        depends_on: Vec::new(),
+        outputs: Vec::new(),
         workspace_closure: true,
         persistent: false,
         readiness: toven_ports::Readiness::Started,
@@ -388,10 +407,12 @@ fn vuln_entry(shared_inputs: &[String]) -> TaskEntry {
         modules: Vec::new(),
     }
 }
-fn run_entry(shared_inputs: &[String]) -> TaskEntry {
+/// The persistent `run` task, limited to crates that report a `bin` target.
+fn run_entry(shared_inputs: &[String]) -> AppResult<TaskEntry> {
     let mut entry = fan_out_entry("run", FanOut::PerModule, shared_inputs);
     entry.persistent = true;
-    entry
+    entry.requires.insert(capabilities::bin()?);
+    Ok(entry)
 }
 
 #[cfg(test)]
@@ -524,6 +545,13 @@ mod tests {
         assert_eq!(config.manifests, Manifests::Auto);
         let run = config.common.tasks.get("run").expect("run task");
         assert!(run.persistent);
+        assert_eq!(
+            run.requires
+                .iter()
+                .map(toven_model::Capability::as_str)
+                .collect::<Vec<_>>(),
+            ["bin"]
+        );
         assert_eq!(run.fan_out, FanOut::PerModule);
         let format = config.common.tasks.get("format").expect("format task");
         assert_eq!(format.fan_out, FanOut::WholeWorkspace);

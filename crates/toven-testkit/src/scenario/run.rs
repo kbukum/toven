@@ -24,6 +24,10 @@ use super::report::{Report, StepOutcome, StepStatus};
 /// state — with each other or with the developer's real cache.
 pub const CACHE_DIR_ENV: &str = "TOVEN_CACHE_DIR";
 
+/// The placeholder a scenario `env` value uses for the materialized repo root
+/// (the same token the normalizer writes for it).
+const REPO_PLACEHOLDER: &str = "<REPO>";
+
 /// Base epoch second for scripted git history; commit `N` is pinned to
 /// `base + N * 60` so history is strictly ordered yet byte-stable. The same
 /// instant as [`exec::CLOCK_EPOCH_VALUE`] — one pinned "now" for the whole
@@ -104,7 +108,7 @@ pub fn run_scenario_with(
         repo_root: repo_root.clone(),
         cache_dir: cache_dir.clone(),
     };
-    let env = step_env(&scenario, &cache_dir, &tool_home);
+    let env = step_env(&scenario, &repo_root, &cache_dir, &tool_home);
     let cx = StepContext {
         binary,
         scenario_dir: dir,
@@ -216,8 +220,15 @@ fn touch(repo_root: &Path, rel: &str) -> AppResult<()> {
 
 /// The deterministic environment overlay for every step: pinned clock, plain
 /// locale/terminal, the scoped cache, and per-scenario toolchain homes — with
-/// the scenario's own `env` on top.
-fn step_env(scenario: &Scenario, cache_dir: &Path, tool_home: &Path) -> BTreeMap<String, String> {
+/// the scenario's own `env` on top, with `<REPO>` in a value expanded to the
+/// materialized repo root.
+fn step_env(
+    scenario: &Scenario,
+    repo_root: &Path,
+    cache_dir: &Path,
+    tool_home: &Path,
+) -> BTreeMap<String, String> {
+    let repo = repo_root.display().to_string();
     let cargo_home = tool_home.join("cargo");
     let go_cache = tool_home.join("go-cache");
     let go_path = tool_home.join("go-path");
@@ -244,7 +255,7 @@ fn step_env(scenario: &Scenario, cache_dir: &Path, tool_home: &Path) -> BTreeMap
         scenario
             .env
             .iter()
-            .map(|(key, value)| (key.clone(), value.clone())),
+            .map(|(key, value)| (key.clone(), value.replace(REPO_PLACEHOLDER, &repo))),
     );
     env
 }
@@ -314,4 +325,31 @@ fn run_step(cx: &StepContext<'_>, step: &Step) -> AppResult<StepStatus> {
 /// The golden file for one step stream: `<scenario dir>/<step id>.<stream>`.
 fn golden_path(scenario_dir: &Path, step_id: &str, stream: &str) -> PathBuf {
     scenario_dir.join(format!("{step_id}.{stream}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    use super::step_env;
+    use crate::scenario::model::Scenario;
+
+    #[test]
+    fn scenario_env_expands_the_repo_placeholder() {
+        let scenario = Scenario {
+            repo: "js/doctor".to_string(),
+            requires: Vec::new(),
+            env: BTreeMap::from([("PATH".to_string(), "<REPO>/bin:/usr/bin".to_string())]),
+            git: None,
+            steps: Vec::new(),
+        };
+        let env = step_env(
+            &scenario,
+            Path::new("/work/repo"),
+            Path::new("/work/cache"),
+            Path::new("/work/tools"),
+        );
+        assert_eq!(env["PATH"], "/work/repo/bin:/usr/bin");
+    }
 }

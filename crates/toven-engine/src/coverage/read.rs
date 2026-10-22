@@ -6,6 +6,13 @@
 //! regular file in the directory is read (bounded) and parsed by
 //! content-detected format ([`CoverageFormat::detect`]), so a directory may mix
 //! an lcov tracefile and a Go coverprofile from a federated run.
+//!
+//! A task names what it stages after the producing module,
+//! `<ecosystem>-<module>`: either a file (`rust-core.lcov`, the name up to the
+//! first `.`) or a directory whose top-level files are the profiles
+//! (`js-packages-core/lcov.info`, for runners that write a fixed file name into
+//! a report directory). Deeper directories are runner scratch (HTML reports,
+//! raw V8 data) and are skipped. The name becomes the profile's `producer`.
 
 use std::path::Path;
 
@@ -40,20 +47,37 @@ pub(super) fn read_profiles(
     }
     let mut profiles = Vec::new();
     for entry in dir::list(dir_path)? {
-        if !entry.is_file {
-            continue;
+        let name = entry.file_name.to_string_lossy();
+        if entry.is_file {
+            let producer = name.split('.').next().unwrap_or_default();
+            profiles.push(read_profile(&entry.path, producer, go_roots)?);
+        } else if entry.is_dir {
+            for inner in dir::list(&entry.path)? {
+                if inner.is_file {
+                    profiles.push(read_profile(&inner.path, &name, go_roots)?);
+                }
+            }
         }
-        let contents = read_string_bounded(&entry.path, MAX_PROFILE_BYTES)?;
-        let profile = match CoverageFormat::detect(&contents) {
-            CoverageFormat::Lcov => lcov::parse(&contents)?,
-            CoverageFormat::GoProfile => goprofile::parse(&contents, go_roots)?,
-        };
-        profiles.push(profile);
     }
     if profiles.is_empty() {
         return Err(no_profiles_error(dir_path));
     }
     Ok(profiles)
+}
+
+/// Read and parse one profile file, recording the module that staged it.
+fn read_profile(
+    path: &Path,
+    producer: &str,
+    go_roots: &GoImportRoots,
+) -> AppResult<CoverageProfile> {
+    let contents = read_string_bounded(path, MAX_PROFILE_BYTES)?;
+    let mut profile = match CoverageFormat::detect(&contents) {
+        CoverageFormat::Lcov => lcov::parse(&contents)?,
+        CoverageFormat::GoProfile => goprofile::parse(&contents, go_roots)?,
+    };
+    profile.producer = (!producer.is_empty()).then(|| producer.to_string());
+    Ok(profile)
 }
 
 fn no_profiles_error(dir_path: &Path) -> AppError {
@@ -92,6 +116,41 @@ mod tests {
         assert!(
             profiles.iter().any(|profile| !profile.files.is_empty()),
             "fixtures parse into per-file coverage"
+        );
+    }
+
+    #[test]
+    fn records_the_producer_from_a_file_or_a_report_directory() {
+        let temp = TempDir::new().expect("temp dir");
+        let dir = temp.path().join("coverage");
+        let report = dir.join("js-packages-core");
+        create_all(&report.join("lcov-report")).expect("mkdir");
+        let lcov = toven_testkit::coverage_profile_string("rust.lcov").expect("lcov fixture");
+        let js = toven_testkit::coverage_profile_string("js/vitest.lcov").expect("js fixture");
+        write_atomic_replace(&dir.join("rust-core.lcov"), lcov.as_bytes(), "read-test")
+            .expect("write lcov");
+        write_atomic_replace(&report.join("lcov.info"), js.as_bytes(), "read-test")
+            .expect("write js");
+        // Runner scratch below the report directory is never read.
+        write_atomic_replace(
+            &report.join("lcov-report").join("index.html"),
+            b"<html></html>",
+            "read-test",
+        )
+        .expect("write html");
+
+        let mut producers: Vec<Option<String>> = read_profiles(&dir, &GoImportRoots::default())
+            .expect("reads")
+            .into_iter()
+            .map(|profile| profile.producer)
+            .collect();
+        producers.sort();
+        assert_eq!(
+            producers,
+            [
+                Some("js-packages-core".to_string()),
+                Some("rust-core".to_string())
+            ]
         );
     }
 

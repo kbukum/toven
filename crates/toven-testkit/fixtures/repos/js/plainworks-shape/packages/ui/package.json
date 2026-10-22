@@ -1,0 +1,23 @@
+{
+  "name": "@pw/ui",
+  "version": "0.1.0-alpha.1",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
+    "check-packaging": "plainworks-release check-packaging"
+  },
+  "dependencies": {
+    "@pw/std": "workspace:*",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@pw/testkit": "workspace:*",
+    "@pw/vitest-config": "workspace:*",
+    "vitest": "catalog:"
+  }
+}

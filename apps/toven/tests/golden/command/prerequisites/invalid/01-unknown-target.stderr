@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: invalid ecosystems.command.tasks.test.depends_on: task 'test' depends on '^compile', but ecosystem 'command' has no 'compile' task. Known tasks: build, check, test.

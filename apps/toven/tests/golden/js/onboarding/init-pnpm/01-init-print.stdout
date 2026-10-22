@@ -1,0 +1,79 @@
+[project]
+name = "repo"
+root = "."
+base_ref = "main"
+
+# Smart defaults fill in tasks, run strategy, and toolchain probes.
+# Uncomment to override, e.g.:
+#   run_strategy = "leaf-to-top"
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.coverage]
+changed_line = 85.0
+enforcement = "advisory"
+line = 80.0
+
+[ecosystems.js.tasks.build]
+argv = ["pnpm", "--dir", "{module.root}", "run", "build", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+outputs = ["dist"]
+requires = ["script:build"]
+shared_inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+
+[ecosystems.js.tasks.coverage]
+argv = ["pnpm", "--dir", "{module.root}", "run", "test", "--coverage.enabled", "--coverage.reporter=lcovonly", "--coverage.reportsDirectory={project.root}/target/toven/coverage/js-{module.name}", "{args}"]
+cacheable = false
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "coverage"
+requires = ["script:test"]
+
+[ecosystems.js.tasks.dev]
+argv = ["pnpm", "--dir", "{module.root}", "run", "dev", "{args}"]
+cacheable = false
+fan_out = "per-module"
+kind = "run"
+persistent = true
+requires = ["script:dev"]
+
+[ecosystems.js.tasks.format]
+argv = ["pnpm", "--dir", "{module.root}", "run", "format", "{args}"]
+cacheable = false
+fan_out = "per-module"
+requires = ["script:format"]
+
+[ecosystems.js.tasks.format-check]
+argv = ["pnpm", "--dir", "{module.root}", "run", "format:check", "{args}"]
+fan_out = "per-module"
+kind = "format"
+requires = ["script:format:check"]
+shared_inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+
+[ecosystems.js.tasks.install]
+argv = ["pnpm", "--dir", "{workspace.root}", "install", "--frozen-lockfile"]
+cacheable = false
+fan_out = "whole-workspace"
+workspace_closure = true
+
+[ecosystems.js.tasks.lint]
+argv = ["pnpm", "--dir", "{module.root}", "run", "lint", "{args}"]
+fan_out = "per-module"
+requires = ["script:lint"]
+shared_inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+
+[ecosystems.js.tasks.test]
+argv = ["pnpm", "--dir", "{module.root}", "run", "test", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+requires = ["script:test"]
+shared_inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+
+[ecosystems.js.tasks.typecheck]
+argv = ["pnpm", "--dir", "{module.root}", "run", "typecheck", "{args}"]
+depends_on = ["^build"]
+fan_out = "per-module"
+kind = "check"
+requires = ["script:typecheck"]
+shared_inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]

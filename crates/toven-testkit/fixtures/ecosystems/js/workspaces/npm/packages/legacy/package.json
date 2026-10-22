@@ -1,0 +1,5 @@
+{
+  "name": "@acme/legacy",
+  "version": "0.0.1",
+  "dependencies": { "@acme/core": "^2.0.0" }
+}

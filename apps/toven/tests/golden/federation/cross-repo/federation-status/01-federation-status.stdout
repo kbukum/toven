@@ -2,6 +2,6 @@ member: core -> repos/core
 member: services -> repos/services
 federation: command -> linked (in this binary)
 federation: go -> linked (in this binary)
+federation: js -> linked (in this binary)
 federation: python -> absent (run `toven driver install <id>`)
 federation: rust -> linked (in this binary)
-federation: ts -> absent (run `toven driver install <id>`)

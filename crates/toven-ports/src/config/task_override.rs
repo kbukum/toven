@@ -1,9 +1,12 @@
 //! `TaskOverride` — the user's per-task diff, field-merged over an adapter
 //! default.
 
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
-use crate::task::{FanOut, Readiness, TaskKind};
+use serde::{Deserialize, Serialize};
+use toven_model::Capability;
+
+use crate::task::{FanOut, Readiness, TaskDependency, TaskKind};
 
 /// A user override for a single **group** task (`[groups.<name>].tasks`).
 ///
@@ -33,6 +36,17 @@ pub struct TaskOverride {
     /// Replacement `fan_out` ceiling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fan_out: Option<FanOut>,
+    /// Replacement set of required module capabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<BTreeSet<Capability>>,
+    /// Replacement prerequisites (`"build"`, `"^build"`) for the group's
+    /// members, e.g. a package whose tests read its own build output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on: Option<Vec<TaskDependency>>,
+    /// Replacement `outputs` for the group's members, e.g. an app whose build
+    /// writes `.next` instead of the ecosystem's `dist`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outputs: Option<Vec<String>>,
     /// Replacement `workspace_closure` capability flag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_closure: Option<bool>,

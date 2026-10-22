@@ -65,6 +65,7 @@ selector = ["-p", "{module.package}"]
 argv = ["cargo", "run", "--manifest-path", "{module.manifest}", "{module.selector}", "{args}"]
 fan_out = "per-module"
 persistent = true
+requires = ["bin"]
 selector = ["-p", "{module.package}"]
 
 [ecosystems.rust.tasks.test]

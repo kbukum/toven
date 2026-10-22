@@ -1,0 +1,6 @@
+{
+  "name": "@acme/platform",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "lint": "eslint .", "test": "npm test --workspaces" }
+}

@@ -3,17 +3,19 @@
 //!
 //! Both the execution verbs ([`run`](super::run)) and `affected`
 //! ([`introspect`](super::introspect)) share one resolution so the same argv
-//! (`--base`/`--merge-base` changed-selection vs. `--module`/`--workspace`
+//! (`--base`/`--merge-base` changed-selection vs. `--module`/`--workspace`/`--group`
 //! explicit selection) maps to the same engine intent everywhere.
 
 use rskit_errors::{AppError, AppResult};
 use toven_core::plan::{ModuleSelector, Selection};
 use toven_core::vcs::{BaselineFlags, BaselineStrategy};
 
+use crate::flags::ExecutionArgs;
+
 /// The CLI-sourced inputs that determine the engine [`Selection`].
 ///
 /// Bundles the changed-selection baseline (`--base`/`--merge-base`) with the
-/// explicit graph targets (`--module`/`--workspace` plus the `--dependencies`/
+/// explicit graph targets (`--module`/`--workspace`/`--group` plus the `--dependencies`/
 /// `--dependents` closures) so the selection verbs thread one value instead of
 /// a widening argument list.
 #[derive(Debug, Default, Clone)]
@@ -24,16 +26,31 @@ pub(crate) struct TaskSelection {
     pub(crate) modules: Vec<String>,
     /// `--workspace <sel>` targets, repeatable.
     pub(crate) workspaces: Vec<String>,
+    /// `--group <sel>` targets, repeatable.
+    pub(crate) groups: Vec<String>,
     /// `--dependents`: also activate the reverse-dependents closure.
     pub(crate) with_dependents: bool,
     /// `--dependencies`: also activate the forward-dependencies closure.
     pub(crate) with_dependencies: bool,
 }
 
+impl From<&ExecutionArgs> for TaskSelection {
+    fn from(execution: &ExecutionArgs) -> Self {
+        Self {
+            baseline: execution.baseline_flags(),
+            modules: execution.module.clone(),
+            workspaces: execution.workspace.clone(),
+            groups: execution.group.clone(),
+            with_dependents: execution.with_dependents,
+            with_dependencies: execution.with_dependencies,
+        }
+    }
+}
+
 impl TaskSelection {
     /// Resolve the CLI selection flags into the engine [`Selection`].
     ///
-    /// Explicit targets (`--module`/`--workspace`) take precedence and produce
+    /// Explicit targets (`--module`/`--workspace`/`--group`) take precedence and produce
     /// [`Selection::Explicit`]; they are mutually exclusive with the changed
     /// baseline (`--base`/`--merge-base`). With no explicit target the result
     /// is [`Selection::All`] (no baseline) or [`Selection::Changed`] (baseline
@@ -43,26 +60,31 @@ impl TaskSelection {
     /// # Errors
     /// Returns a typed usage error when explicit targets are combined with a
     /// baseline, when `--dependencies`/`--dependents` is used without an
-    /// explicit target, or when a `--module`/`--workspace` value fails to
+    /// explicit target, or when a `--module`/`--workspace`/`--group` value fails to
     /// parse.
     pub(crate) fn resolve(&self, base_ref: Option<&str>) -> AppResult<Selection> {
         let baseline = &self.baseline;
-        let has_explicit = !self.modules.is_empty() || !self.workspaces.is_empty();
+        let has_explicit =
+            !self.modules.is_empty() || !self.workspaces.is_empty() || !self.groups.is_empty();
         let has_baseline = baseline.base.is_some() || baseline.merge_base;
 
         if has_explicit {
             if has_baseline {
                 return Err(AppError::invalid_input(
                     "flags",
-                    "`--module`/`--workspace` select the graph explicitly and cannot be combined with `--base`/`--merge-base` (changed selection)",
+                    "`--module`/`--workspace`/`--group` select the graph explicitly and cannot be combined with `--base`/`--merge-base` (changed selection)",
                 ));
             }
-            let mut targets = Vec::with_capacity(self.modules.len() + self.workspaces.len());
+            let mut targets =
+                Vec::with_capacity(self.modules.len() + self.workspaces.len() + self.groups.len());
             for reference in &self.modules {
                 targets.push(ModuleSelector::parse(reference)?);
             }
             for workspace in &self.workspaces {
                 targets.push(ModuleSelector::whole_workspace(workspace)?);
+            }
+            for group in &self.groups {
+                targets.push(ModuleSelector::group(group)?);
             }
             return Ok(Selection::Explicit {
                 targets,
@@ -74,7 +96,7 @@ impl TaskSelection {
         if self.with_dependents || self.with_dependencies {
             return Err(AppError::invalid_input(
                 "flags",
-                "`--dependencies`/`--dependents` only apply together with `--module`/`--workspace`",
+                "`--dependencies`/`--dependents` only apply together with `--module`/`--workspace`/`--group`",
             ));
         }
 
@@ -89,7 +111,7 @@ impl TaskSelection {
     /// Split the CLI selection into an `explain` plan scope and an optional
     /// display focus.
     ///
-    /// An explicit `--module`/`--workspace` selection becomes the display
+    /// An explicit `--module`/`--workspace`/`--group` selection becomes the display
     /// *focus* (which units to show) while the plan is built over the full set
     /// ([`Selection::All`]), so each shown unit is the real batched unit the
     /// target belongs to rather than a synthetic single-module cut. A
@@ -142,6 +164,7 @@ mod tests {
         let resolved = TaskSelection {
             modules: vec!["rust:core".into()],
             workspaces: vec!["rust".into()],
+            groups: vec!["domain-*".into()],
             with_dependents: true,
             with_dependencies: true,
             ..selection()
@@ -155,6 +178,7 @@ mod tests {
                 targets: vec![
                     ModuleSelector::parse("rust:core").unwrap(),
                     ModuleSelector::whole_workspace("rust").unwrap(),
+                    ModuleSelector::group("domain-*").unwrap(),
                 ],
                 include_dependents: true,
                 include_dependencies: true,

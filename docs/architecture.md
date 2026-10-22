@@ -8,11 +8,11 @@ Toven is a hexagonal Rust workspace. Domain types sit at the center, ports defin
 
 If you are finding your way through the repository, start here:
 
-1. **Entry points:** `apps/toven`, `apps/toven-rs`, and `apps/toven-go` wire binaries.
+1. **Entry points:** `apps/toven`, `apps/toven-rs`, `apps/toven-go`, and `apps/toven-js` wire binaries.
 2. **CLI boundary:** `crates/toven-cli` owns command grammar and output streams.
 3. **Planning and execution:** `crates/toven-core`, `crates/toven-engine`, and `crates/toven-release` own the orchestration.
 4. **Ports and mechanisms:** `crates/toven-ports`, `crates/toven-exec`, `crates/toven-vcs`, and `crates/toven-runtime` define seams and shared execution machinery.
-5. **Ecosystem adapters:** `crates/toven-rust`, `crates/toven-go`, and `crates/toven-command` translate Rust, Go, and generic tool behavior into those seams.
+5. **Ecosystem adapters:** `crates/toven-rust`, `crates/toven-go`, `crates/toven-js`, and `crates/toven-command` translate Rust, Go, JavaScript/TypeScript, and generic tool behavior into those seams.
 6. **Pure domain types:** `crates/toven-model` and `crates/toven-semver` stay at the bottom of the stack.
 
 ## Workspace layers
@@ -30,9 +30,10 @@ L2b  crates/toven-release
 L2b  crates/toven-engine
 L2   crates/toven-rust
 L2   crates/toven-go
+L2   crates/toven-js
 L2   crates/toven-command
 L3   crates/toven-cli
-L4   apps/toven, apps/toven-rs, apps/toven-go
+L4   apps/toven, apps/toven-rs, apps/toven-go, apps/toven-js
 ```
 
 Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that the streamed `release` verbs run on today (`run` and `coverage` are not yet migrated). `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
@@ -51,7 +52,7 @@ flowchart TB
     version["L2 · toven-version"]
     release["L2b · toven-release"]
     engine["L2b · toven-engine"]
-    ecosystems["L2 · toven-rust / toven-go / toven-command"]
+    ecosystems["L2 · toven-rust / toven-go / toven-js / toven-command"]
     cli["L3 · toven-cli"]
     apps["L4 · apps/*"]
 
@@ -81,7 +82,7 @@ flowchart TB
     apps --> exec
 ```
 
-Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `toven-go`, `toven-command`) into the CLI; `toven-cli` itself depends on the engine crates and the shared foundation, never on a concrete ecosystem adapter.
+Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `toven-go`, `toven-js`, `toven-command`) into the CLI; `toven-cli` itself depends on the engine crates and the shared foundation, never on a concrete ecosystem adapter.
 
 | Crate | Responsibility |
 |---|---|
@@ -97,6 +98,7 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 | `toven-engine` | Apply, cache, coverage, output, watch, init, doctor, and the rskit-backed port adapters |
 | `toven-rust` | Cargo discovery and Rust task/release behavior |
 | `toven-go` | Go discovery and Go task/release behavior |
+| `toven-js` | Offline JavaScript/TypeScript discovery across npm, pnpm, Yarn, and Bun, and npm-registry release |
 | `toven-command` | Out-of-process ecosystem driver integration |
 | `toven-cli` | Command grammar and output projection |
 | `toven-testkit` | Shared fixtures, doubles, and smoke support |
@@ -341,10 +343,12 @@ The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, compo
 | --- | --- | --- |
 | `VersionSource::declared_version` | Bump | Read the declared version. |
 | `ManifestMutator::apply_release` | Bump | Write the manifest version. |
+| `ManifestMutator::finalize_release` | Bump | Rewrite shared files once per release, such as a lockfile. |
 | `TagGrammar::tag_scheme` | Tag | Supply the tag grammar. |
 | `Packager::package` | Package | Package built artifacts (delegable). |
 | `SbomProducer::sbom` | Provenance | Produce the SBOM (delegable). |
 | `VersionSource::published_versions` | Publish | Query the registry for idempotency. |
+| `Publisher::validate_publication` | Select | Reject a registry or visibility the target cannot publish to, at plan time. |
 | `Publisher::publish` | Publish | Publish to the registry. |
 | engine sign | Sign | Sign tags and artifacts (delegable). |
 | `ImagePhase::publish` | Image | Publish container images (delegable). |

@@ -1,0 +1,1 @@
+error[INVALID_INPUT]: module 'command:lib' cannot run task 'serve': it does not provide bin. Select a module that does, or change the task's `requires`.

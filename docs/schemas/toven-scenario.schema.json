@@ -18,7 +18,7 @@
     },
     "env": {
       "type": "object",
-      "description": "Deterministic environment overrides applied to every step.",
+      "description": "Deterministic environment overrides applied to every step. `<REPO>` in a value expands to the materialized repo root, so stand-in tools from the fixture can go on PATH.",
       "additionalProperties": { "type": "string" }
     },
     "git": {

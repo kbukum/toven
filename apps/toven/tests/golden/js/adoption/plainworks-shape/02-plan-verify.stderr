@@ -1,0 +1,29 @@
+run check-versions,lint,typecheck,build,test,check-packaging,check-production on plainworks-shape
+skip: js:apps-host (check-versions needs script:check-versions)
+skip: js:internal-vitest-config (check-versions needs script:check-versions)
+skip: js:packages-std (check-versions needs script:check-versions)
+skip: js:packages-testkit (check-versions needs script:check-versions)
+skip: js:packages-ui (check-versions needs script:check-versions)
+skip: js:apps-host (lint needs script:lint)
+skip: js:internal-vitest-config (lint needs script:lint)
+skip: js:packages-std (lint needs script:lint)
+skip: js:packages-testkit (lint needs script:lint)
+skip: js:packages-ui (lint needs script:lint)
+skip: js:plainworks-shape (typecheck needs script:typecheck)
+skip: js:internal-vitest-config (build needs script:build)
+skip: js:plainworks-shape (build needs script:build)
+skip: js:plainworks-shape (test needs script:test)
+skip: js:apps-host (check-packaging needs script:check-packaging)
+skip: js:internal-vitest-config (check-packaging needs script:check-packaging)
+skip: js:plainworks-shape (check-packaging needs script:check-packaging)
+skip: js:internal-vitest-config (check-production needs script:check-production)
+skip: js:packages-std (check-production needs script:check-production)
+skip: js:packages-testkit (check-production needs script:check-production)
+skip: js:packages-ui (check-production needs script:check-production)
+skip: js:plainworks-shape (check-production needs script:check-production)
+plan: 20 units in 5 waves
+summary (dry run — no tasks executed)
+  planned:  20
+      ran:  0
+   cached:  0
+   status:  ok

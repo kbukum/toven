@@ -13,10 +13,12 @@
 //! ## Modules
 //! - [`identity`] — [`EcosystemId`], [`EcosystemScope`], [`ModuleRef`],
 //!   [`ModuleKey`], [`WorkspaceId`], [`MemberId`], [`RepoPath`], [`AbsPath`].
+//! - [`capability`] — [`Capability`], what a module provides for task
+//!   eligibility.
 //! - [`module`] / [`edge`] / [`workspace`] — [`Module`], [`Edge`]/[`DepKind`],
 //!   [`Workspace`]/[`ToolchainTag`].
 //! - [`graph`] — [`Graph`] build/validate + wave-leveling + reverse closure.
-//! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`CacheVerdict`],
+//! - [`plan`] — [`Plan`], [`ExecutionUnit`], [`SkippedModule`], [`SkipReason`], [`CacheVerdict`],
 //!   [`ExecutionReadiness`], [`TaskOrigin`].
 //! - [`selector`] — [`ModuleSelector`], [`NamePattern`] (the lenient selection
 //!   grammar).
@@ -27,6 +29,7 @@
 //! - [`mod@unit`] — [`Unit`], [`Backing`], [`Composite`]: the one action shape
 //!   every capability takes and how it is satisfied.
 
+pub mod capability;
 pub mod ecosystems;
 pub mod edge;
 pub mod event;
@@ -40,6 +43,7 @@ pub mod tool;
 pub mod unit;
 pub mod workspace;
 
+pub use capability::Capability;
 pub use ecosystems::{CanonicalEcosystem, canonical_ecosystems};
 pub use edge::{DepKind, Edge};
 pub use event::{
@@ -51,7 +55,9 @@ pub use identity::{
     AbsPath, EcosystemId, EcosystemScope, MemberId, ModuleKey, ModuleRef, RepoPath, WorkspaceId,
 };
 pub use module::Module;
-pub use plan::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, TaskOrigin};
+pub use plan::{
+    CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, SkipReason, SkippedModule, TaskOrigin,
+};
 pub use release::{Entrypoint, ReleasePhase};
 pub use selector::{ModuleSelector, NamePattern};
 pub use tool::ToolStatus;

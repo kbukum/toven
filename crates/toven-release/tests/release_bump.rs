@@ -1108,3 +1108,82 @@ fn a_runaway_on_resolved_hook_that_floods_the_worktree_fails_closed() {
         writer.writes()
     );
 }
+
+fn finalize_calls(target: &FakeReleaseTarget) -> Vec<Vec<ModuleRef>> {
+    target
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            toven_testkit::ReleaseCall::FinalizeRelease(modules) => Some(modules),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn bump_stages_the_paths_the_target_finalizes() {
+    // A package manager that records workspace versions in a shared lockfile
+    // refreshes it once after every manifest write; the refreshed lockfile is
+    // part of the staged release mutation.
+    let target = FakeReleaseTarget::new()
+        .with_finalized_paths(vec![RepoPath::new("package-lock.json").expect("path")]);
+    let (ws, root, document) = load_project(false);
+    let writer = FakeVcsWriter::new();
+    run_bump_with(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_with_target(target.clone()),
+    );
+
+    let staged = staged_paths(&writer.writes());
+    assert!(
+        staged.iter().any(|path| path == "package-lock.json"),
+        "the finalized lockfile is staged: {staged:?}"
+    );
+    assert_eq!(
+        finalize_calls(&target),
+        vec![vec![ModuleRef::new(eid("rust"), "core").expect("ref")]],
+        "finalize runs once with the rewritten modules"
+    );
+}
+
+#[test]
+fn bump_skips_finalize_when_no_manifest_changed() {
+    let target = FakeReleaseTarget::new().with_written_paths(Vec::new());
+    let (ws, root, document) = load_project(false);
+    let writer = FakeVcsWriter::new();
+    run_bump_with(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions::default(),
+        &provider_with_target(target.clone()),
+    );
+    assert!(
+        finalize_calls(&target).is_empty(),
+        "nothing was rewritten, so there is nothing to finalize"
+    );
+}
+
+#[test]
+fn dry_run_never_finalizes() {
+    let target = FakeReleaseTarget::new();
+    let (ws, root, document) = load_project(false);
+    let writer = FakeVcsWriter::new();
+    run_bump_with(
+        &ws,
+        root,
+        &document,
+        &writer,
+        BumpOptions { dry_run: true },
+        &provider_with_target(target.clone()),
+    );
+    assert!(
+        finalize_calls(&target).is_empty(),
+        "a preview is mutation-free"
+    );
+}

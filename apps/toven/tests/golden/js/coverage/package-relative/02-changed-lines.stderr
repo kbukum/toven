@@ -1,0 +1,14 @@
+run coverage on js-coverage
+plan: 2 units in 1 wave
+  ok js:packages-app#coverage
+  ok js:packages-core#coverage
+summary
+      planned:  2
+          ran:  2
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok
+Coverage
+  coverage js:packages-app: passed (line 66.67%, function 100.00%)
+  coverage js:packages-core: passed (line 100.00%, function 100.00%, region 50.00%, changed-line 100.00%)
+    Finished coverage: 2 passed — gate passed

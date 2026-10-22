@@ -6,8 +6,10 @@
 //! query the planner later asks for (`toolchain_probe`, the per-kind
 //! `run_strategy` defaults, and the common config). Those trait methods cannot
 //! return errors, so they are resolved once up front where a transport failure
-//! *can* be surfaced; only the fallible
-//! [`discover`](ConfiguredAdapter::discover) stays a live RPC. The runnable
+//! *can* be surfaced; the fallible
+//! [`discover`](ConfiguredAdapter::discover) and per-workspace
+//! [`toolchain_probes_for`](ConfiguredAdapter::toolchain_probes_for) stay live
+//! RPCs. The runnable
 //! task table is not an RPC — it is the driver's resolved config, carried in
 //! the [`Welcome`]'s common config.
 //!
@@ -21,10 +23,10 @@ use std::sync::Mutex;
 
 use rskit_config::RawValue;
 use rskit_errors::{AppError, AppResult, ErrorCode};
-use toven_model::EcosystemId;
+use toven_model::{AbsPath, EcosystemId, ToolchainTag};
 use toven_ports::{
-    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
-    RunStrategy, TaskKind, ToolchainProbe,
+    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, DoctorScope,
+    ReleaseAdapter, RunStrategy, TaskIntent, TaskKind, ToolchainProbe,
 };
 
 use super::super::protocol::envelope::{ENVELOPE_SCHEMA_VERSION, Hello, Request, Response};
@@ -161,20 +163,22 @@ impl RemoteAdapter {
             run_strategies,
         })
     }
+
+    /// Send one request and wait for its response.
+    fn rpc(&self, request: &Request) -> AppResult<Response> {
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| AppError::new(ErrorCode::Internal, "driver RPC lock poisoned"))?;
+        client
+            .call(request)
+            .map_err(|fault| fault.into_app_error(self.ecosystem.as_str()))
+    }
 }
 
 impl ConfiguredAdapter for RemoteAdapter {
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse> {
-        let response = {
-            let mut client = self
-                .client
-                .lock()
-                .map_err(|_| AppError::new(ErrorCode::Internal, "driver RPC lock poisoned"))?;
-            client
-                .call(&Request::Discover(request.clone()))
-                .map_err(|fault| fault.into_app_error(self.ecosystem.as_str()))?
-        };
-        match response {
+        match self.rpc(&Request::Discover(request.clone()))? {
             Response::Discover(response) => Ok(response),
             other => Err(unexpected(self.ecosystem.as_str(), "discover", &other)),
         }
@@ -182,6 +186,36 @@ impl ConfiguredAdapter for RemoteAdapter {
 
     fn toolchain_probe(&self) -> ToolchainProbe {
         self.probe.clone()
+    }
+
+    fn toolchain_probes_for(
+        &self,
+        toolchain: &ToolchainTag,
+        intent: &TaskIntent,
+    ) -> AppResult<Vec<ToolchainProbe>> {
+        let request = Request::ToolchainProbes {
+            toolchain: toolchain.clone(),
+            task: intent.name().to_string(),
+            kind: intent.kind(),
+        };
+        match self.rpc(&request)? {
+            Response::ToolchainProbes(probes) => Ok(probes),
+            other => Err(unexpected(
+                self.ecosystem.as_str(),
+                "toolchain_probes_for",
+                &other,
+            )),
+        }
+    }
+
+    fn doctor(&self, project_root: &AbsPath) -> AppResult<DoctorScope> {
+        let request = Request::Doctor {
+            project_root: project_root.clone(),
+        };
+        match self.rpc(&request)? {
+            Response::Doctor(scope) => Ok(scope),
+            other => Err(unexpected(self.ecosystem.as_str(), "doctor", &other)),
+        }
     }
 
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {

@@ -1,7 +1,7 @@
 //! Behavioral tests for the schedule phase: ordering, task resolution, batch
 //! grouping with dependency-layer folding, and unit rendering.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use toven_model::{
     AbsPath, DepKind, EcosystemId, Edge, Module, ModuleKey, ModuleRef, RepoPath, ToolchainTag,
@@ -23,7 +23,7 @@ use crate::plan::request::PlanRequest;
 
 #[test]
 fn unknown_task_error_suggests_the_nearest_name_and_discovery_hint() {
-    let available = vec![
+    let available = [
         Task::new(
             "format",
             vec!["cargo".into(), "fmt".into()],
@@ -35,7 +35,11 @@ fn unknown_task_error_suggests_the_nearest_name_and_discovery_hint() {
             FanOut::Batchable,
         ),
     ];
-    let error = unknown_task_error("rust", &TaskIntent::resolve("fmt"), &available);
+    let error = unknown_task_error(
+        &["rust"],
+        &TaskIntent::resolve("fmt"),
+        available.iter().map(|task| task.name.as_str()),
+    );
     let message = error.to_string();
     assert!(message.contains("has no 'fmt' task"), "{message}");
     assert!(message.contains("Did you mean 'format'?"), "{message}");
@@ -44,12 +48,16 @@ fn unknown_task_error_suggests_the_nearest_name_and_discovery_hint() {
 
 #[test]
 fn unknown_task_error_omits_a_suggestion_for_a_far_off_name() {
-    let available = vec![Task::new(
+    let available = [Task::new(
         "test",
         vec!["cargo".into(), "test".into()],
         FanOut::Batchable,
     )];
-    let error = unknown_task_error("rust", &TaskIntent::resolve("zzzzzz"), &available);
+    let error = unknown_task_error(
+        &["rust"],
+        &TaskIntent::resolve("zzzzzz"),
+        available.iter().map(|task| task.name.as_str()),
+    );
     let message = error.to_string();
     assert!(!message.contains("Did you mean"), "{message}");
     assert!(message.contains("toven tasks"), "{message}");
@@ -169,6 +177,7 @@ fn waves_for(federation: &Federation, adapters: &MemberAdapters) -> Vec<Vec<Stri
         &request(),
         federation,
         &active,
+        &BTreeSet::new(),
         adapters,
         &GroupOverrides::default(),
         &toolchains(federation),
@@ -204,6 +213,7 @@ fn workspace_module_without_resolved_toolchain_is_rejected() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &adapters,
         &GroupOverrides::default(),
         &BTreeMap::new(),
@@ -342,6 +352,7 @@ fn batchable_splits_distinct_workspaces_in_one_ecosystem() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -385,6 +396,7 @@ fn batchable_groups_members_and_keeps_distinct_ecosystems_apart() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -438,6 +450,7 @@ fn batchable_single_workspace_chain_stays_one_batched_unit() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -491,6 +504,7 @@ fn external_dependent_waves_after_an_unsplit_multi_layer_batch() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -566,6 +580,7 @@ fn facade_back_dependency_splits_a_workspace_across_layers_into_a_dag() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -662,6 +677,7 @@ fn whole_workspace_facade_cycle_co_schedules_the_cycle_into_one_wave() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -748,6 +764,7 @@ fn whole_workspace_facade_cycle_without_closure_capability_fails_closed() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -813,6 +830,7 @@ fn group_task_override_workspace_closure_true_and_false() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &overrides_false,
         &toolchains(&federation),
@@ -854,6 +872,7 @@ fn group_task_override_workspace_closure_true_and_false() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &overrides_true,
         &toolchains(&federation),
@@ -892,6 +911,7 @@ fn whole_workspace_acyclic_dependency_orders_units_across_waves() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
@@ -931,6 +951,7 @@ fn named_extra_task_is_selected_by_its_addressable_name() {
         &request_for(TaskIntent::resolve("test-integration")),
         &federation,
         &active,
+        &BTreeSet::new(),
         &adapters,
         &GroupOverrides::default(),
         &toolchains,
@@ -944,6 +965,7 @@ fn named_extra_task_is_selected_by_its_addressable_name() {
         &request_for(TaskIntent::resolve("test")),
         &federation,
         &active,
+        &BTreeSet::new(),
         &adapters,
         &GroupOverrides::default(),
         &toolchains,
@@ -983,6 +1005,7 @@ fn group_override_applies_to_a_named_extra_by_its_addressable_name() {
         &request_for(TaskIntent::resolve("test-integration")),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &overrides,
         &toolchains(&federation),
@@ -1044,6 +1067,7 @@ fn group_task_override_applies_to_members_only() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &overrides,
         &toolchains(&federation),
@@ -1120,6 +1144,7 @@ fn same_name_group_overrides_from_distinct_scopes_do_not_collapse() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &overrides,
         &toolchains(&federation),
@@ -1177,6 +1202,7 @@ fn group_run_strategy_override_relaxes_members_only() {
         &request(),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &overrides,
         &toolchains(&federation),
@@ -1189,11 +1215,11 @@ fn group_run_strategy_override_relaxes_members_only() {
     assert_eq!(waves.len(), 1);
 }
 
-/// An adapter whose sole task is a persistent `run` (`kind = "run"`), so a
-/// schedule over a `run` intent proves the runnable filter.
-fn run_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
-    let mut task = Task::new("run", vec!["run".to_string()], FanOut::PerModule);
-    task.persistent = true;
+/// An adapter whose sole `name` task requires `capability`, so a schedule over
+/// that intent proves capability eligibility.
+fn requiring_adapter(ecosystem: &str, name: &str, capability: &str) -> Box<dyn ConfiguredAdapter> {
+    let mut task = Task::new(name, vec![name.to_string()], FanOut::PerModule);
+    task.requires.insert(cap(capability));
     Box::new(
         FakeConfiguredAdapter::new(eid(ecosystem))
             .with_response(DiscoverResponse::new(eid(ecosystem)))
@@ -1202,56 +1228,124 @@ fn run_adapter(ecosystem: &str) -> Box<dyn ConfiguredAdapter> {
     )
 }
 
-#[test]
-fn run_task_skips_library_only_modules() {
+fn cap(value: &str) -> toven_model::Capability {
+    toven_model::Capability::new(value).unwrap()
+}
+
+/// A two-module federation where only `app` provides `bin`.
+fn bin_and_lib() -> Federation {
     let mut app = module("rust", "app", "rust");
-    app.runnable = true;
-    let mut lib = module("rust", "lib", "rust");
-    lib.runnable = false;
-    let federation = Federation {
+    app.capabilities.insert(cap("bin"));
+    let lib = module("rust", "lib", "rust");
+    Federation {
         workspaces: vec![workspace("rust")],
         modules: vec![app, lib],
         edges: Vec::new(),
         global_inputs: Vec::new(),
         warnings: Vec::new(),
-    };
+    }
+}
+
+#[test]
+fn modules_missing_a_required_capability_are_skipped_with_the_reason() {
+    let federation = bin_and_lib();
     let mut adapters = ConfiguredSet::new();
-    adapters.insert(eid("rust"), run_adapter("rust"));
+    adapters.insert(eid("rust"), requiring_adapter("rust", "run", "bin"));
     let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
 
     let scheduled = schedule(
         &request_for(TaskIntent::resolve("run")),
         &federation,
         &active,
+        &BTreeSet::new(),
         &single_member(adapters),
         &GroupOverrides::default(),
         &toolchains(&federation),
     )
     .unwrap();
 
-    // Only the module with an executable target gets a `run` unit; the library-only
-    // crate is dropped rather than scheduled to fail at exec.
     assert_eq!(ids(&scheduled), vec!["rust:app#run".to_string()]);
+    assert_eq!(scheduled.skipped.len(), 1);
+    let skip = &scheduled.skipped[0];
+    assert_eq!(skip.module.to_string(), "rust:lib");
+    assert_eq!(skip.task, "run");
+    assert_eq!(skip.reason.missing(), [cap("bin")]);
 }
 
 #[test]
-fn non_run_tasks_never_filter_library_only_modules() {
-    let mut app = module("rust", "app", "rust");
-    app.runnable = true;
-    let mut lib = module("rust", "lib", "rust");
-    lib.runnable = false;
-    let federation = Federation {
-        workspaces: vec![workspace("rust")],
-        modules: vec![app, lib],
-        edges: Vec::new(),
-        global_inputs: Vec::new(),
-        warnings: Vec::new(),
+fn an_exactly_named_ineligible_module_is_an_error() {
+    let federation = bin_and_lib();
+    let mut adapters = ConfiguredSet::new();
+    adapters.insert(eid("rust"), requiring_adapter("rust", "run", "bin"));
+    let lib = toven_model::ModuleKey::bare(mref("rust", "lib"));
+
+    let Err(error) = schedule(
+        &request_for(TaskIntent::resolve("run")),
+        &federation,
+        std::slice::from_ref(&lib),
+        &BTreeSet::from([lib.clone()]),
+        &single_member(adapters),
+        &GroupOverrides::default(),
+        &toolchains(&federation),
+    ) else {
+        panic!("a named module without `bin` must be rejected");
     };
+    let message = error.to_string();
+    assert!(message.contains("rust:lib"), "{message}");
+    assert!(message.contains("bin"), "{message}");
+}
+
+#[test]
+fn modules_outside_the_task_list_are_skipped_unless_named() {
+    let federation = bin_and_lib();
+    let mut task = Task::new("test", vec!["test".to_string()], FanOut::PerModule);
+    task.modules = vec!["app".to_string()];
+    let listed = || {
+        let mut adapters = ConfiguredSet::new();
+        adapters.insert(
+            eid("rust"),
+            Box::new(
+                FakeConfiguredAdapter::new(eid("rust"))
+                    .with_response(DiscoverResponse::new(eid("rust")))
+                    .with_tasks(vec![task.clone()])
+                    .with_run_strategy(RunStrategy::Unordered),
+            ) as Box<dyn ConfiguredAdapter>,
+        );
+        single_member(adapters)
+    };
+    let active: Vec<toven_model::ModuleKey> = federation.modules.iter().map(Module::key).collect();
+    let run = |named: &BTreeSet<toven_model::ModuleKey>| {
+        schedule(
+            &request_for(TaskIntent::resolve("test")),
+            &federation,
+            &active,
+            named,
+            &listed(),
+            &GroupOverrides::default(),
+            &toolchains(&federation),
+        )
+    };
+
+    let scheduled = run(&BTreeSet::new()).unwrap();
+    assert_eq!(ids(&scheduled), vec!["rust:app#test".to_string()]);
+    assert_eq!(
+        scheduled.skipped[0].reason,
+        toven_model::SkipReason::NotListed
+    );
+
+    let lib = toven_model::ModuleKey::bare(mref("rust", "lib"));
+    let Err(error) = run(&BTreeSet::from([lib])) else {
+        panic!("a named module outside the task list must be rejected");
+    };
+    assert!(error.to_string().contains("applies only to app"), "{error}");
+}
+
+#[test]
+fn tasks_without_requirements_keep_every_module() {
+    let federation = bin_and_lib();
     let mut adapters = ConfiguredSet::new();
     adapters.insert(eid("rust"), adapter("rust", RunStrategy::Unordered));
 
-    // The default `test` task is not `run`-kind, so both modules keep a unit
-    // regardless of `runnable`.
     assert_eq!(
         waves_for(&federation, &single_member(adapters)),
         vec![vec![
@@ -1284,6 +1378,7 @@ fn planned_unit(
         base_argv: Vec::new(),
         shared_inputs: Vec::new(),
         cache_args: false,
+        outputs: Vec::new(),
         cacheable: true,
         fail_if_output: false,
         toolchain_identity: String::new(),

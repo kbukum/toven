@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::identity::{ModuleKey, WorkspaceId};
+use crate::capability::Capability;
+use crate::identity::{ModuleKey, RepoPath, WorkspaceId};
 
 /// Per-unit cache outcome decided statically during PLAN.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize, Serialize)]
@@ -121,6 +122,10 @@ pub struct ExecutionUnit {
     /// Content cache key to record after a successful cacheable run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_key: Option<String>,
+    /// Declared outputs, repo-relative. A cache hit counts only while they
+    /// are present and unchanged; APPLY records their state after success.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<RepoPath>,
     /// Ids of the units this unit depends on (the scheduled dependency edges).
     ///
     /// APPLY uses these to fail-close: when a unit fails, every unit that lists
@@ -143,25 +148,88 @@ const fn default_readiness_timeout() -> Duration {
     Duration::from_secs(30)
 }
 
+/// Why an active module is not eligible for a task.
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum SkipReason {
+    /// The task's `modules` list does not name the module.
+    NotListed,
+    /// The module lacks capabilities the task `requires` (a package with no
+    /// `test` script under `toven test`).
+    MissingCapabilities {
+        /// The required capabilities the module does not provide.
+        missing: Vec<Capability>,
+    },
+}
+
+impl SkipReason {
+    /// The stable kebab-case code (`not-listed`, `missing-capabilities`),
+    /// matching the serialized `kind`.
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::NotListed => "not-listed",
+            Self::MissingCapabilities { .. } => "missing-capabilities",
+        }
+    }
+
+    /// The missing capabilities, empty for a reason that has none.
+    #[must_use]
+    pub fn missing(&self) -> &[Capability] {
+        match self {
+            Self::NotListed => &[],
+            Self::MissingCapabilities { missing } => missing,
+        }
+    }
+}
+
+/// An active module the plan left out because it is not eligible for the task.
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+pub struct SkippedModule {
+    /// The skipped module.
+    pub module: ModuleKey,
+    /// The task it was skipped for.
+    pub task: String,
+    /// Why the module is not eligible.
+    pub reason: SkipReason,
+}
+
 /// The immutable result of the PLAN half: units + federated wave order.
 ///
 /// `waves` lists [`ExecutionUnit::id`]s in dependency-respecting order; each
 /// inner vector is one ready wave. The plan fully determines APPLY (including
 /// which units are cache hits), so `--explain`/dry-run is just a PLAN-only
-/// projection.
+/// projection. `skipped` records active modules that are not eligible for the
+/// task, so a skip is always explained rather than silent.
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Plan {
     /// All execution units, keyed by `id`.
     pub units: Vec<ExecutionUnit>,
     /// Wave-ordered unit ids (each inner vec is one ready wave).
     pub waves: Vec<Vec<String>>,
+    /// Active modules left out for missing required capabilities.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<SkippedModule>,
 }
 
 impl Plan {
-    /// Construct a plan from its units and wave order.
+    /// Construct a plan from its units and wave order, with no skipped
+    /// modules.
     #[must_use]
     pub const fn new(units: Vec<ExecutionUnit>, waves: Vec<Vec<String>>) -> Self {
-        Self { units, waves }
+        Self {
+            units,
+            waves,
+            skipped: Vec::new(),
+        }
+    }
+
+    /// Record the active modules the plan left out.
+    #[must_use]
+    pub fn with_skipped(mut self, skipped: Vec<SkippedModule>) -> Self {
+        self.skipped = skipped;
+        self
     }
 }
 
@@ -169,7 +237,8 @@ impl Plan {
 mod tests {
     use std::time::Duration;
 
-    use super::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan};
+    use super::{CacheVerdict, ExecutionReadiness, ExecutionUnit, Plan, SkipReason, SkippedModule};
+    use crate::capability::Capability;
     use crate::identity::{EcosystemId, ModuleKey, ModuleRef};
 
     #[test]
@@ -192,13 +261,31 @@ mod tests {
             fail_if_output: false,
             cache: CacheVerdict::Miss,
             cache_key: Some("cache-key".to_string()),
+            outputs: Vec::new(),
             depends_on: vec!["rust:core#build".to_string()],
             resource_group: Some("cargo:.".to_string()),
         };
-        let plan = Plan::new(vec![unit], vec![vec!["rust:errors#build".to_string()]]);
+        let plan =
+            Plan::new(vec![unit], vec![vec!["rust:errors#build".to_string()]]).with_skipped(vec![
+                SkippedModule {
+                    module: ModuleKey::bare(
+                        ModuleRef::new(EcosystemId::new("rust").unwrap(), "macros").unwrap(),
+                    ),
+                    task: "build".to_string(),
+                    reason: SkipReason::MissingCapabilities {
+                        missing: vec![Capability::new("bin").unwrap()],
+                    },
+                },
+            ]);
         let json = serde_json::to_string(&plan).unwrap();
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(plan, back);
+        assert!(
+            json.contains(r#""reason":{"kind":"missing-capabilities","missing":["bin"]}"#),
+            "{json}"
+        );
+        assert_eq!(plan.skipped[0].reason.code(), "missing-capabilities");
+        assert!(SkipReason::NotListed.missing().is_empty());
         assert!(!plan.units[0].cache.is_hit());
         assert_eq!(
             plan.units[0].depends_on,

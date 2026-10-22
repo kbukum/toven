@@ -1,0 +1,18 @@
+# A repository-owned pack command: Toven runs it per package from the
+# repository root instead of `npm pack`, and still collects exactly one
+# tarball from `{destination}`.
+[project]
+name = "js-release-train"
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.pack]
+"." = ["node", "scripts/pack.mjs", "{module.root}", "--destination", "{destination}"]
+
+[ecosystems.js.release]
+strategy = "semver-cascade"
+level = "minor"
+push = false
+registry = "npmjs"
+offline = true

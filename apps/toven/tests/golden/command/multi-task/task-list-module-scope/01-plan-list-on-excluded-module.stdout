@@ -11,6 +11,7 @@
 {"event":"phase-finished","phase":"toolchain"}
 {"event":"phase-started","phase":"schedule"}
 {"event":"cache-decided","unit_id":"command:worker#build","verdict":"miss"}
+{"event":"module-skipped","module":"command:worker","task":"lint","reason":"not-listed"}
 {"event":"phase-finished","phase":"schedule"}
 {"event":"plan-prepared","waves":1,"units":1}
 {"event":"run-finished","summary":{"planned_units":1,"ran_units":0,"cached_units":0,"failed_units":0,"blocked_units":0,"cancelled_units":0,"failed_readiness_units":0,"timed_out_units":0,"cache_hits":0,"cache_misses":1,"cache_disabled":0,"cache_forced":0,"dropped_output_chunks":0,"dry_run":true}}

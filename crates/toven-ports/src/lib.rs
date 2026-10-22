@@ -89,7 +89,9 @@ pub use exec::{
 };
 pub use hook::{HookInvocation, HookPhase, HookRunner};
 pub use merge::{merge_coverage, merge_release, merge_task};
-pub use provider::{ConfiguredAdapter, EcosystemFragment, Provider};
+pub use provider::{
+    CheckVerdict, ConfiguredAdapter, DoctorScope, EcosystemCheck, EcosystemFragment, Provider,
+};
 pub use raw_output::RawOutputSink;
 pub use release::{
     Artifact, AssetDownloader, HostReleaseOutcome, HostedRelease, ImageOutcome, ImagePhase,
@@ -103,8 +105,8 @@ pub use release::{
 pub use reporter::{PlanReporter, Reporter};
 pub use source::SourceDigest;
 pub use task::{
-    DEFAULT_READINESS_TIMEOUT, FanOut, Readiness, Task, TaskIntent, TaskKind, TaskOrigin,
-    ToolchainProbe,
+    DEFAULT_READINESS_TIMEOUT, DependencyScope, FanOut, Readiness, Task, TaskDependency,
+    TaskIntent, TaskKind, TaskOrigin, ToolchainProbe,
 };
 pub use template::{CommandTemplate, ReleaseTemplate, ReleaseVar, TaskVar};
 pub use toolchain::ToolchainProber;

@@ -1,0 +1,27 @@
+# Changesets coexistence: Changesets writes the versions and Toven tags and
+# publishes them. `@plain/ui` declares 0.3.0 ahead of its last tag (0.2.0),
+# so `strategy = "manifest"` cuts exactly 0.3.0; every other package matches
+# its tag and stays out of the cut.
+repo: js/release-train
+git:
+  commits:
+    - msg: "changeset version"
+      touch:
+        - packages/ui/index.js
+  tags:
+    - { name: "@plain/core@0.1.0", at: 0 }
+    - { name: "@plain/ui@0.2.0", at: 0 }
+    - { name: "@plain/cli@1.2.0", at: 0 }
+    - { name: "@plain/docs@0.0.0", at: 0 }
+steps:
+  - id: 01-release-plan-human
+    argv: [release, plan]
+    config: toven.manifest.toml
+    stdout: { match: normalized }
+    stderr: { match: line-set, frame_prefix: 1, frame_suffix: 1 }
+  - id: 02-release-publish-dry-run
+    argv: [release, publish, --dry-run, --output, jsonl]
+    config: toven.manifest.toml
+    stdout: { match: normalized }
+    effects:
+      - git_tag_absent: "@plain/ui@0.3.0"

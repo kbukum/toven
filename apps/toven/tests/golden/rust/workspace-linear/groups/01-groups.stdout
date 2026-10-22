@@ -1,0 +1,11 @@
+
+Groups
+┌────────────┬─────────┬───────────────┬────────────────────────┐
+│ Group      │ Modules │ May depend on │ Description            │
+├────────────┼─────────┼───────────────┼────────────────────────┤
+│ apps       │ 1       │ foundation    │ Shipped binaries       │
+│ foundation │ 2       │ none          │ Shared building blocks │
+└────────────┴─────────┴───────────────┴────────────────────────┘
+Members
+  apps: rust:app
+  foundation: rust:corelib, rust:util

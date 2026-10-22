@@ -1,0 +1,10 @@
+            unit:  js:packages-app#test
+  representative:  js:packages-app
+         modules:  js:packages-app
+          target:  js:packages-app
+            task:  test
+          origin:  project
+            argv:  ["echo", "test packages-app"]
+      persistent:  false
+      depends_on:  js:packages-core#build
+

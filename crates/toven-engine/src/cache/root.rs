@@ -19,7 +19,7 @@ pub const CACHE_DIR_ENV: &str = "TOVEN_CACHE_DIR";
 /// Task-cache record/key format version, isolated in its own directory segment
 /// so an incompatible future format starts a fresh tree instead of misreading
 /// old records.
-pub const CACHE_FORMAT_VERSION: &str = "v3";
+pub const CACHE_FORMAT_VERSION: &str = "v4";
 
 /// Application name used to derive the platform user-cache directory.
 const APP_NAME: &str = "toven";

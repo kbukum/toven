@@ -11,7 +11,7 @@ use rskit_errors::{AppError, AppResult, ErrorCode};
 use rskit_fs::sync_io::tree::{IgnoreWalkOptions, WalkControl, walk_tree_ignoring};
 use rskit_fs::{safe_join, sync_io::file};
 use rskit_util::hash::ContentHasher;
-use toven_model::{AbsPath, Module};
+use toven_model::{AbsPath, Module, RepoPath};
 use toven_ports::SourceDigest;
 
 /// Per-file read cap (16 MiB): large enough for any source/lock file, bounded
@@ -28,6 +28,14 @@ const MAX_FILES: usize = 100_000;
 /// affects builds. `.git` and gitignored artifacts are always excluded.
 const HASH_WALK: IgnoreWalkOptions = IgnoreWalkOptions {
     respect_gitignore: true,
+    skip_hidden: false,
+    follow_symlinks: false,
+};
+
+/// Output-hashing walk policy: declared outputs are usually git-ignored build
+/// artifacts (`dist/`), so ignore rules do not apply inside them.
+const OUTPUT_WALK: IgnoreWalkOptions = IgnoreWalkOptions {
+    respect_gitignore: false,
     skip_hidden: false,
     follow_symlinks: false,
 };
@@ -81,7 +89,7 @@ impl FsSourceDigest {
     fn hash_tree(root: &Path) -> AppResult<String> {
         // Collect files relative to the root, sorted for a stable identity independent
         // of directory-iteration order.
-        let files = collect_files(root)?;
+        let files = collect_files(root, HASH_WALK)?;
 
         let mut hasher = ContentHasher::new();
         for (relative, absolute) in &files {
@@ -93,21 +101,27 @@ impl FsSourceDigest {
 }
 
 impl FsSourceDigest {
-    /// Hash one project-relative external root. It sits outside the project
-    /// on purpose (discovery recorded it from the module's own build config),
-    /// so it is resolved and must be an existing directory rather than confined.
+    /// Hash one project-relative external root: a directory subtree or a
+    /// single file (for example a packed package tarball). It may sit outside
+    /// the project on purpose (discovery recorded it from the module's own
+    /// build config), so it is resolved and must exist rather than confined.
     fn external_tree(&self, module: &Module, external: &str) -> AppResult<String> {
         let root = rskit_fs::path::canonicalize(&self.project_root.join(external))?;
-        if !root.is_dir() {
+        if root.is_dir() {
+            return Self::hash_tree(&root);
+        }
+        if !file::exists(&root)? {
             return Err(AppError::new(
                 ErrorCode::NotFound,
                 format!(
-                    "module '{}' external root '{external}' is not a directory",
+                    "module '{}' external root '{external}' is not a file or directory",
                     module.id
                 ),
             ));
         }
-        Self::hash_tree(&root)
+        let mut hasher = ContentHasher::new();
+        Self::hash_file_into(&root, &mut hasher)?;
+        Ok(hasher.finalize_hex())
     }
 }
 
@@ -158,6 +172,53 @@ impl SourceDigest for FsSourceDigest {
     }
 }
 
+/// Fingerprint a unit's declared outputs under `project_root`.
+///
+/// Each output is a repo-relative file or directory; a directory covers every
+/// file under it, ignore rules included. The fingerprint folds each file's
+/// path, size, and modification time rather than its bytes: it is checked on
+/// every plan, must stay cheap for large bundles, and only needs to notice that
+/// an output was deleted or rebuilt since the run that recorded it.
+///
+/// Returns `None` when any output is missing, since a cache record is only
+/// valid while every output exists. An empty list fingerprints to the stable
+/// empty identity.
+///
+/// # Errors
+/// Propagates a traversal-unsafe path or an output read failure.
+pub fn outputs_fingerprint(project_root: &Path, outputs: &[RepoPath]) -> AppResult<Option<String>> {
+    let mut hasher = ContentHasher::new();
+    for output in outputs {
+        let absolute = safe_join(project_root, output.as_path()).map_err(|error| {
+            AppError::invalid_input("outputs", error.to_string()).with_cause(error)
+        })?;
+        hasher.update_framed(b"output", output.as_path().to_string_lossy().as_bytes());
+        if absolute.is_dir() {
+            for (relative, path) in collect_files(&absolute, OUTPUT_WALK)? {
+                hasher.update_framed(b"path", relative.to_string_lossy().as_bytes());
+                stamp_into(&path, &mut hasher)?;
+            }
+        } else if file::exists(&absolute)? {
+            stamp_into(&absolute, &mut hasher)?;
+        } else {
+            return Ok(None);
+        }
+    }
+    Ok(Some(hasher.finalize_hex()))
+}
+
+/// Fold one file's size and modification time into `hasher`.
+fn stamp_into(path: &Path, hasher: &mut ContentHasher) -> AppResult<()> {
+    let meta = file::metadata(path)?;
+    hasher.update_framed(b"len", &meta.len.to_le_bytes());
+    let modified = meta
+        .modified
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_nanos());
+    hasher.update_framed(b"modified", &modified.to_le_bytes());
+    Ok(())
+}
+
 /// The stable identity of absent content.
 fn empty_digest() -> String {
     ContentHasher::new().finalize_hex()
@@ -169,9 +230,9 @@ fn empty_digest() -> String {
 /// Symlinks are skipped and the walk is bounded at [`MAX_FILES`]. The returned
 /// [`BTreeMap`] is ordered by relative path, giving a stable identity that is
 /// independent of directory-iteration order.
-fn collect_files(root: &Path) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
+fn collect_files(root: &Path, walk: IgnoreWalkOptions) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
     let mut files = BTreeMap::new();
-    walk_tree_ignoring(root, HASH_WALK, |entry| {
+    walk_tree_ignoring(root, walk, |entry| {
         if files.len() >= MAX_FILES {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -240,6 +301,25 @@ mod tests {
 
         core.external_roots = vec!["../missing".to_string()];
         assert!(digest.module(&core).is_err());
+    }
+
+    #[test]
+    fn external_file_roots_join_the_module_digest() {
+        let workspace = TestWorkspace::new("source-digest-external-file");
+        workspace
+            .write_file("repo/web/index.js", b"export {}")
+            .unwrap();
+        workspace.write_file("repo/vendor/std.tgz", b"one").unwrap();
+        let root = AbsPath::new(workspace.path().join("repo")).unwrap();
+        let digest = FsSourceDigest::new(&root);
+
+        let mut web = module("web");
+        web.external_roots = vec!["vendor/std.tgz".to_string()];
+        let before = digest.module(&web).unwrap();
+        assert_ne!(digest.module(&module("web")).unwrap(), before);
+
+        workspace.write_file("repo/vendor/std.tgz", b"two").unwrap();
+        assert_ne!(before, digest.module(&web).unwrap());
     }
 
     #[test]

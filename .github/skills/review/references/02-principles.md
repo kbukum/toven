@@ -20,7 +20,7 @@ User-owned argv is never silently rewritten. Validation and selector expansion a
 
 ## Libraries do not print
 
-Only `toven-cli` produces user-facing output. Any `println!` / `print!` / `eprintln!` / `eprint!` (or logging-used-as-output) in `toven-model`, `toven-ports`, `toven-engine`, `toven-rust`, `toven-go`, or `toven-command` is a blocker — libraries return typed data and typed errors; the CLI/reporting layer renders.
+Only `toven-cli` produces user-facing output. Any `println!` / `print!` / `eprintln!` / `eprint!` (or logging-used-as-output) in `toven-model`, `toven-ports`, `toven-engine`, `toven-rust`, `toven-go`, `toven-js`, or `toven-command` is a blocker — libraries return typed data and typed errors; the CLI/reporting layer renders.
 
 ## Typed, minimal, no panics
 

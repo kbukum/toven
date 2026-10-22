@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rskit_errors::{AppError, AppResult};
-use toven_model::{ModuleKey, ToolchainTag, WorkspaceId};
+use toven_model::{Module, ModuleKey, SkipReason, SkippedModule, ToolchainTag, WorkspaceId};
 
 use super::grouping::{group_id_map, layered_group_ids, level_units_into_waves};
 use super::ordering::{
@@ -27,6 +27,8 @@ pub(in crate::plan) struct Scheduled {
     pub(in crate::plan) units: Vec<PlannedUnit>,
     /// Wave-ordered unit ids (each inner vec is one ready wave).
     pub(in crate::plan) waves: Vec<Vec<String>>,
+    /// Active modules left out for missing required capabilities.
+    pub(in crate::plan) skipped: Vec<SkippedModule>,
 }
 
 /// Schedule the active module set into waves of rendered units.
@@ -39,23 +41,32 @@ pub(in crate::plan) struct Scheduled {
 /// unit is kept distinct from the un-overridden default so members never
 /// collapse across differing argv.
 ///
+/// Active modules that lack a capability the effective task `requires` are
+/// left out and reported as [`SkippedModule`]s; a module in `named` (one the
+/// user selected by exact name) is rejected instead, so an explicit request
+/// never silently runs nothing.
+///
 /// # Errors
 /// An active module with no configured adapter or no task for the intent, a
-/// missing workspace a template requires, or a template parse/render failure.
+/// named module that lacks a required capability, a missing workspace a
+/// template requires, or a template parse/render failure.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::plan) fn schedule(
     request: &PlanRequest,
     federation: &Federation,
     active: &[ModuleKey],
+    named: &BTreeSet<ModuleKey>,
     adapters: &MemberAdapters,
     overrides: &GroupOverrides,
     toolchain: &BTreeMap<WorkspaceId, ToolchainTag>,
 ) -> AppResult<Scheduled> {
     let active_modules = active_modules(federation, active);
     let effective = effective_tasks(&active_modules, adapters, &request.intent, overrides)?;
-    // A `run`-kind task can only launch modules with an executable target; drop
-    // library-only modules from the schedule so `run` is offered where valid rather
-    // than failing at exec on a crate with no binary.
-    let (active_modules, effective) = retain_runnable(active_modules, effective);
+    let Eligible {
+        modules: active_modules,
+        effective,
+        skipped,
+    } = retain_eligible(active_modules, effective, named, request.intent.name())?;
     let strategies = strategies(&active_modules, adapters, overrides, &effective)?;
     let subgraph = active_subgraph(&active_modules, federation)?;
 
@@ -111,47 +122,127 @@ pub(in crate::plan) fn schedule(
     Ok(Scheduled {
         units,
         waves: wave_ids,
+        skipped,
     })
 }
 
-/// Drop modules whose resolved task is
-/// [`TaskKind::Run`](toven_ports::TaskKind::Run) but which expose no executable
-/// target ([`Module::runnable`] is `false`).
+/// The `active` modules eligible for the intent's effective task (named by its
+/// `modules` list when set, providing every capability it `requires`).
 ///
-/// A persistent `run` on a library-only crate is invalid — `cargo run` has no
-/// binary to launch — so the schedule excludes it rather than emitting a unit
-/// that fails at exec. Non-`Run` tasks (build/test/lint/…) are never filtered:
-/// every active module keeps its unit.
-fn retain_runnable(
-    active_modules: BTreeMap<ModuleKey, toven_model::Module>,
-    effective: BTreeMap<ModuleKey, EffectiveTask>,
-) -> (
-    BTreeMap<ModuleKey, toven_model::Module>,
-    BTreeMap<ModuleKey, EffectiveTask>,
-) {
-    use toven_ports::TaskKind;
-
-    let dropped: BTreeSet<ModuleKey> = effective
+/// Uses the same rule as [`schedule`], so prerequisite expansion starts only
+/// from modules that will actually run the requested task.
+///
+/// # Errors
+/// An active module with no configured adapter or no task for the intent.
+pub(in crate::plan) fn eligible_modules(
+    federation: &Federation,
+    active: &BTreeSet<ModuleKey>,
+    adapters: &MemberAdapters,
+    intent: &toven_ports::TaskIntent,
+    overrides: &GroupOverrides,
+) -> AppResult<BTreeSet<ModuleKey>> {
+    let keys: Vec<ModuleKey> = active.iter().cloned().collect();
+    let modules = active_modules(federation, &keys);
+    let effective = effective_tasks(&modules, adapters, intent, overrides)?;
+    Ok(effective
         .iter()
-        .filter(|(key, effective)| {
-            effective.task.kind == TaskKind::Run
-                && active_modules
-                    .get(*key)
-                    .is_some_and(|module| !module.runnable)
+        .filter(|(key, resolved)| {
+            modules
+                .get(*key)
+                .is_some_and(|module| ineligibility(module, &resolved.task).is_none())
         })
         .map(|(key, _)| key.clone())
-        .collect();
+        .collect())
+}
 
-    if dropped.is_empty() {
-        return (active_modules, effective);
+/// The active modules and effective tasks eligible for the intent, plus the
+/// ones left out.
+struct Eligible {
+    modules: BTreeMap<ModuleKey, Module>,
+    effective: BTreeMap<ModuleKey, EffectiveTask>,
+    skipped: Vec<SkippedModule>,
+}
+
+/// Keep only modules eligible for their effective task: named by its `modules`
+/// list (when set) and providing every capability it `requires`.
+///
+/// An ineligible module selected broadly (all, affected, glob, workspace, or a
+/// dependency/dependents closure) is skipped and reported. One the user named
+/// exactly is an error saying why.
+fn retain_eligible(
+    mut modules: BTreeMap<ModuleKey, Module>,
+    mut effective: BTreeMap<ModuleKey, EffectiveTask>,
+    named: &BTreeSet<ModuleKey>,
+    task: &str,
+) -> AppResult<Eligible> {
+    let mut skipped = Vec::new();
+    for (key, resolved) in &effective {
+        let Some(module) = modules.get(key) else {
+            continue;
+        };
+        let Some(reason) = ineligibility(module, &resolved.task) else {
+            continue;
+        };
+        if named.contains(key) {
+            return Err(ineligible_error(key, task, &resolved.task.modules, &reason));
+        }
+        skipped.push(SkippedModule {
+            module: key.clone(),
+            task: task.to_string(),
+            reason,
+        });
     }
-    let active_modules = active_modules
-        .into_iter()
-        .filter(|(key, _)| !dropped.contains(key))
+    for skip in &skipped {
+        modules.remove(&skip.module);
+        effective.remove(&skip.module);
+    }
+    Ok(Eligible {
+        modules,
+        effective,
+        skipped,
+    })
+}
+
+/// Why `module` cannot run `task`, or `None` when it is eligible.
+fn ineligibility(module: &Module, task: &toven_ports::Task) -> Option<SkipReason> {
+    if !task.modules.is_empty() && !task.modules.contains(&module.id.name) {
+        return Some(SkipReason::NotListed);
+    }
+    let missing: Vec<_> = task
+        .requires
+        .iter()
+        .filter(|capability| !module.capabilities.contains(*capability))
+        .cloned()
         .collect();
-    let effective = effective
-        .into_iter()
-        .filter(|(key, _)| !dropped.contains(key))
-        .collect();
-    (active_modules, effective)
+    (!missing.is_empty()).then_some(SkipReason::MissingCapabilities { missing })
+}
+
+/// The typed error for an exactly named module the task cannot run on.
+fn ineligible_error(
+    key: &ModuleKey,
+    task: &str,
+    listed: &[String],
+    reason: &SkipReason,
+) -> AppError {
+    let detail = match reason {
+        SkipReason::MissingCapabilities { missing } => {
+            let missing = missing
+                .iter()
+                .map(toven_model::Capability::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "it does not provide {missing}. Select a module that does, or change the task's `requires`."
+            )
+        }
+        SkipReason::NotListed => format!(
+            "the task applies only to {}. Select one of them, or change the task's `modules`.",
+            listed.join(", ")
+        ),
+        _ => "it is not eligible.".to_string(),
+    };
+    AppError::new(
+        rskit_errors::ErrorCode::InvalidInput,
+        format!("module '{key}' cannot run task '{task}': {detail}"),
+    )
 }

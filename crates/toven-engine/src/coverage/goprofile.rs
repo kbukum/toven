@@ -44,6 +44,7 @@ pub(super) fn parse(contents: &str, roots: &GoImportRoots) -> AppResult<Coverage
 
     Ok(CoverageProfile {
         format: CoverageFormat::GoProfile,
+        producer: None,
         files: files.into_values().collect(),
     })
 }

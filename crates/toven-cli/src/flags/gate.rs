@@ -328,6 +328,7 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
     if !accepts_selection(&cli.command)
         && (!cli.execution.module.is_empty()
             || !cli.execution.workspace.is_empty()
+            || !cli.execution.group.is_empty()
             || cli.execution.with_dependents
             || cli.execution.with_dependencies)
     {
@@ -335,6 +336,8 @@ fn gate_selection_flags(cli: &Cli, verb: &str) -> AppResult<()> {
             "--module"
         } else if !cli.execution.workspace.is_empty() {
             "--workspace"
+        } else if !cli.execution.group.is_empty() {
+            "--group"
         } else if cli.execution.with_dependents {
             "--dependents"
         } else {
@@ -433,6 +436,7 @@ const fn accepts_output_format(command: &Command) -> bool {
             | Command::Doctor { .. }
             | Command::CommitLint { .. }
             | Command::Modules
+            | Command::Groups
             | Command::Affected { .. }
     )
 }
@@ -505,6 +509,7 @@ fn verb_name(command: &Command) -> String {
         Command::Init => "init".to_string(),
         Command::Affected { .. } => "affected".to_string(),
         Command::Modules => "modules".to_string(),
+        Command::Groups => "groups".to_string(),
         Command::Graph => "graph".to_string(),
         Command::Tasks { .. } => "tasks".to_string(),
         Command::Doctor { .. } => "doctor".to_string(),

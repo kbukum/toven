@@ -21,7 +21,7 @@ pub(super) fn record_success(unit: &ExecutionUnit, cache: &dyn CacheWriter) -> A
                 ),
             )
         })?;
-        cache.record(key)?;
+        cache.record(key, &unit.outputs)?;
     }
     Ok(())
 }

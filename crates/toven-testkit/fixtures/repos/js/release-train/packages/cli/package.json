@@ -1,0 +1,9 @@
+{
+    "name": "@plain/cli",
+    "version": "1.2.0",
+    "bin": { "plain": "index.js" },
+    "dependencies": {
+        "@plain/ui": "workspace:^",
+        "@plain/core": "~0.1.0"
+    }
+}

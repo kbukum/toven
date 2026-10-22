@@ -1,11 +1,14 @@
 //! The resolved task: a two-template command plus its scheduling attributes.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use toven_model::Unit;
+use toven_model::{Capability, Unit};
 
-use super::{FanOut, Readiness, TaskKind, TaskOrigin, readiness::DEFAULT_READINESS_TIMEOUT};
+use super::{
+    FanOut, Readiness, TaskDependency, TaskKind, TaskOrigin, readiness::DEFAULT_READINESS_TIMEOUT,
+};
 
 /// A fully resolved task — the adapter default field-merged with any user
 /// override.
@@ -33,6 +36,19 @@ pub struct Task {
     pub selector: Vec<String>,
     /// Capability ceiling; adapter default per kind.
     pub fan_out: FanOut,
+    /// Module capabilities this task needs (`bin`, `script:test`). A module
+    /// that lacks any of them is not eligible for the task. Empty means every
+    /// module is eligible.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub requires: BTreeSet<Capability>,
+    /// Tasks that must finish first, on the same module (`build`) or on the
+    /// module's dependencies (`^build`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<TaskDependency>,
+    /// Files or directories, relative to each module root, the task produces.
+    /// A cache hit counts only while they are present and unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<String>,
     /// Whether this task's whole-workspace invocation resolves its own
     /// cross-workspace dependency closure, making it sound to co-schedule inside
     /// an irreducible facade back-dependency cycle (default off).
@@ -107,6 +123,9 @@ impl Task {
             argv,
             selector: Vec::new(),
             fan_out,
+            requires: BTreeSet::new(),
+            depends_on: Vec::new(),
+            outputs: Vec::new(),
             workspace_closure: false,
             origin: TaskOrigin::AdapterDefault,
             cache_args: false,
@@ -157,6 +176,9 @@ mod tests {
         assert_eq!(task.readiness, Readiness::Started);
         assert_eq!(task.readiness_timeout, DEFAULT_READINESS_TIMEOUT);
         assert!(task.selector.is_empty());
+        assert!(task.requires.is_empty());
+        assert!(task.depends_on.is_empty());
+        assert!(task.outputs.is_empty());
         assert!(!task.cache_args);
         assert!(task.cacheable);
         assert!(!task.fail_if_output);

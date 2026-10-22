@@ -97,6 +97,16 @@ impl GroupOverrides {
             .map(|(_, strategy)| *strategy)
     }
 
+    /// Every recorded task override as `(module, task, group identity,
+    /// override)`, in module then task order.
+    pub(crate) fn tasks(&self) -> impl Iterator<Item = (&ModuleKey, &str, &str, &TaskOverride)> {
+        self.per_module.iter().flat_map(|(module, over)| {
+            over.tasks.iter().map(move |(task, (identity, over))| {
+                (module, task.as_str(), identity.as_str(), over)
+            })
+        })
+    }
+
     /// The group task override named `task` for `module`, paired with the
     /// declaring group identity (folded into the batch unit id to keep members
     /// overridden by distinct declarations in separate units).

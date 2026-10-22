@@ -230,14 +230,14 @@ impl SourceDigest for FakeSourceDigest {
 
 struct FakeCacheStore;
 impl CacheStore for FakeCacheStore {
-    fn contains(&self, _key: &str) -> AppResult<bool> {
+    fn contains(&self, _key: &str, _outputs: &[RepoPath]) -> AppResult<bool> {
         Ok(false)
     }
 }
 
 struct FakeCacheWriter;
 impl CacheWriter for FakeCacheWriter {
-    fn record(&self, _key: &str) -> AppResult<()> {
+    fn record(&self, _key: &str, _outputs: &[RepoPath]) -> AppResult<()> {
         Ok(())
     }
 }
@@ -598,11 +598,11 @@ fn port_traits_are_object_safe() {
         digest.path(Path::new("shared")).expect("path digest"),
         "path:shared"
     );
-    assert!(!cache.contains("any-key").expect("cache lookup"));
+    assert!(!cache.contains("any-key", &[]).expect("cache lookup"));
 
     // Exercise the APPLY-side ports (cache writer, command runner, held process)
     // enough to prove object-safety without spawning a runtime.
-    cache_writer.record("any-key").expect("records");
+    cache_writer.record("any-key", &[]).expect("records");
     assert_eq!(held.unit_id(), "rust:fake#run");
     held.shutdown().expect("shuts down");
     let _runner: &dyn CommandRunner = &*runner;

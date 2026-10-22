@@ -6,18 +6,7 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Added
 
-- Run several tasks as one plan with a comma list (`toven run build,test,lint`) or a named `[sets.<name>]` set (`toven verify`). The tasks run side by side in one plan; list order is not run order. `plan`, `affected` and `explain` accept the same lists and sets.
-- `[doctor.checks.<id>]` adds project health checks (a path, or an argv command with an optional whole-number version match) with fix hints, `--profile` tags and JSONL records. A failed command check shows its last stderr line, such as which port is busy.
-- Every run writes each unit's full output to a private log file, and the JSONL `unit-finished` event names it. Toven keeps the newest 20 runs and never prunes a run still in progress.
-- A Go module's local `replace` targets outside the module graph (such as a sibling checkout) are hashed into its cache key, so these modules can cache instead of always rerunning. Invalid targets fail discovery. A missing target not confirmed by the owner's requirements instead warns and disables caching, since offline discovery cannot tell an unused replacement from a transitive dependency.
-- A task's `modules` list limits it to the named modules of its ecosystem. Default and changed selections skip the others, and a name no module matches fails instead of silently disabling the task. Explicitly selecting an excluded module fails when the task runs alone; when it runs with other tasks, it just skips that module.
-
 ### Changed
-
-- A passing unit now prints only its status line instead of its output; use `-v` to show it. A failing unit, even under `--quiet`, prints its last lines, exit code and log path.
-- A bare task (`toven test ...`) now accepts the same flag forms as `toven run`, such as `--timeout=5s`, `-j4` and `-vv`, and its run hooks honor flags given after the task name. A short-flag cluster with an unknown letter (`-vx`), or a value flag joined to a word that is not its value (`go test -json`), passes through to the task whole. Flag combinations such as `--watch-debounce-ms` with `--watch` are checked after the global and task flags merge.
-- `commit-lint` is now a reserved word, so a task named `commit-lint` needs `toven run commit-lint`.
-- A `tag_format` without exactly one `{version}`, or with `{channel}`, now fails when the config loads instead of when a release cuts its tag.
 
 ### Deprecated
 
@@ -25,10 +14,48 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Fixed
 
+### Security
+
+## [0.1.0-alpha.15] - 2026-10-22
+
+### Added
+
+- Run several tasks as one plan with a comma list (`toven run build,test,lint`) or a named `[sets.<name>]` set (`toven verify`). The tasks run side by side in one plan; list order is not run order. `plan`, `affected` and `explain` accept the same lists and sets.
+- `[doctor.checks.<id>]` adds project health checks (a path, or an argv command with an optional whole-number version match) with fix hints, `--profile` tags and JSONL records. A failed command check shows its last stderr line, such as which port is busy.
+- Every run writes each unit's full output to a private log file, and the JSONL `unit-finished` event names it. Toven keeps the newest 20 runs and never prunes a run still in progress.
+- A Go module's local `replace` targets outside the module graph (such as a sibling checkout) are hashed into its cache key, so these modules can cache instead of always rerunning. Invalid targets fail discovery. A missing target not confirmed by the owner's requirements instead warns and disables caching, since offline discovery cannot tell an unused replacement from a transitive dependency.
+- Tasks can be limited to some modules: `modules` names them, and `requires` lists capabilities a module must provide (command modules declare theirs with `capabilities`). Other modules are skipped with a reason in the plan, `explain`, and JSONL output. Naming one exactly with `--module` is an error when the task runs alone; in a list or set it is skipped too, and the run fails only if no task applies to any selected module. A `modules` name no module matches fails instead of silently disabling the task.
+- Tasks can declare prerequisites with `depends_on`: `"build"` runs `build` on the same module first, `"^build"` on every module it depends on. Toven adds them to the plan in earlier waves, and rejects unknown, persistent or cyclic prerequisites before planning. A group task override can replace `depends_on` and `outputs` for its members only.
+- `--group <name>` selects every member of a `[groups.<name>]` declaration, by name or glob, and combines with `--module`, `--workspace`, `--dependents` and `--dependencies`. Members a task does not apply to are skipped; an unknown group lists the declared ones.
+- `toven groups` lists declared groups with their description, allowed groups and members, as a table or one JSON record per group, so scripts can read domains from Toven. Groups gain `description` and `guardrails.allow_groups`, which enforces layering between groups against the real module graph.
+- Tasks can declare `outputs`. A cached result then replays only while those files still exist unchanged, so a deleted or replaced build output is rebuilt.
+- A `js` ecosystem for JavaScript and TypeScript (`[ecosystems.js]`, crate `toven-js`, standalone binary `toven-js`). It discovers npm, pnpm, Yarn, and Bun workspaces, including several independent roots in one repository, and links packages through `workspace:`, path, and matching-range dependencies. Discovery is offline: no `node_modules`, network, or package manager binary.
+- A module's external cache roots can now be single files, such as a packed package tarball.
+- `toven init` onboards JavaScript and TypeScript repositories: one task per package script, run through the detected npm, pnpm, Yarn, or Bun, with dependency builds before tests and an `install` task for the frozen-lockfile install. Cacheable tasks hash the root manifest, lockfile, and manager settings, so a dependency bump invalidates their cache.
+- `toven doctor` runs ecosystem checks. For `js` it reports a missing or stale install and a package manager that differs from the `packageManager` pin, each with the fix. For `go` it checks that each Go root can select the toolchain its `go.mod` or `go.work` requires. Federation drivers answer a new `Doctor` request.
+- `toven coverage` measures JavaScript. `toven init` writes a `coverage` task for Vitest, Jest, or `bun test` that emits LCOV per package, plus an advisory threshold block.
+- `toven release` versions and publishes JavaScript packages to the npm registry or another registry URL, in dependency order. It rewrites versions and internal ranges in place, refreshes the lockfile so a frozen install still passes, packs with the root's package manager (or a repository's own pack command from `[ecosystems.js.pack]`), publishes prereleases under their channel dist-tag (never `latest`), and leaves `"private": true` packages out of the release unless `exclude = false` opts them in to tag-only. Tags default to `{package}@{version}`. Credentials reach npm through the environment, and `strategy = "manifest"` lets a repository keep Changesets for versioning.
+
+### Changed
+
+- A passing unit now prints only its status line instead of its output; use `-v` to show it. A failing unit, even under `--quiet`, prints its last lines, exit code and log path.
+- A bare task (`toven test ...`) now accepts the same flag forms as `toven run`, such as `--timeout=5s`, `-j4` and `-vv`, and its run hooks honor flags given after the task name. A short-flag cluster with an unknown letter (`-vx`), or a value flag joined to a word that is not its value (`go test -json`), passes through to the task whole. Flag combinations such as `--watch-debounce-ms` with `--watch` are checked after the global and task flags merge.
+- `commit-lint` is now a reserved word, so a task named `commit-lint` needs `toven run commit-lint`.
+- A `tag_format` without exactly one `{version}`, or with `{channel}`, now fails when the config loads instead of when a release cuts its tag.
+- A Rust `run` task now needs `requires = ["bin"]` to skip library-only packages; `toven init` writes it. Before, Toven skipped them by a hidden rule.
+- Rust tasks except `run` now run unordered by default: each cargo invocation already builds its path dependencies in order, so Toven no longer splits a workspace batch into dependency waves. Set `run_strategy = "leaf-to-top"` to keep the old ordering.
+- When no selected ecosystem defines a task, the error now names every selected ecosystem (not just the first module's) and suggests the nearest task any of them defines.
+- The cache format is now `v4`. Entries from older versions are not reused.
+- The reserved ecosystem id `ts` is now `js` ("JavaScript/TypeScript").
+- An excluded module still raises its ranges on in-repo dependencies that release, so the workspace stays installable. It still gets no version, tag, or publication of its own.
+- An adapter now chooses toolchain probes per workspace toolchain, and a workspace's toolchain identity joins every probed version. Federation drivers answer a new `ToolchainProbes` request.
+- Coverage profiles are located by producer: a file `<ecosystem>-<module>.<ext>` or a directory `<ecosystem>-<module>/`. Relative paths resolve against that module's directory, so package-relative LCOV is credited to the right package. Paths that leave the repository are dropped.
+
+### Fixed
+
+- A unit stopped by `--fail-fast` or Ctrl+C while it was running is now reported as cancelled, not failed, and keeps the output it produced before the stop.
 - Very chatty units apply backpressure instead of dropping output. Incomplete delivery after the process's post-exit grace period is an explicit error, not a successful run with a partial log. A background process that a task leaves running while it still holds the task's output is stopped after that grace period, so the task finishes with its full output instead of failing. Quiet output stays hidden in live views, and stdout-only checks keep stderr separate on terminals.
 - `toven release verify --download` fetched `v{version}` whenever `tag_format` was unset, and left `{module}` and `{ecosystem}` unfilled when it was set. It now picks the hosted Release the way the host step does (only releasing modules, and the umbrella module in an umbrella train) and fails when modules would cut different Releases.
-
-### Security
 
 ## [0.1.0-alpha.14] - 2026-10-18
 

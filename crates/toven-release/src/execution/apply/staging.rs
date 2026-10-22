@@ -39,10 +39,10 @@ pub(crate) fn prepare(
     BTreeMap<ModuleKey, Artifact>,
     crate::execution::mutate::MutatedManifests,
 )> {
-    let mutated = crate::execution::mutate::mutate_manifests(plan, module_by_ref, targets, stats)?;
-    let changed_paths = crate::execution::mutate::staged_paths(&mutated);
+    let writes = crate::execution::mutate::mutate_manifests(plan, module_by_ref, targets, stats)?;
+    let changed_paths = writes.staged_paths();
     let artifacts = package_publishable(plan, module_by_ref, targets, stats)?;
-    Ok((changed_paths, artifacts, mutated))
+    Ok((changed_paths, artifacts, writes.per_module))
 }
 
 /// Stage exactly the release-mutated paths and create the release commit.

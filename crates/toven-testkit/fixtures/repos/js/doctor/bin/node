@@ -1,0 +1,3 @@
+#!/bin/sh
+# A stand-in `node` so the doctor scenario reports a fixed version.
+echo v24.0.0

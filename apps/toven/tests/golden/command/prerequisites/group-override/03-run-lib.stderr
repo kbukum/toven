@@ -1,0 +1,11 @@
+run test on prerequisites-command
+plan: 3 units in 3 waves
+  ok command:core#build
+  ok command:lib#build
+  ok command:lib#test
+summary
+      planned:  3
+          ran:  3
+       cached:  0
+  duration-ms:  <DUR>
+       status:  ok

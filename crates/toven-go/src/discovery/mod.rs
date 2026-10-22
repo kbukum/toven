@@ -4,4 +4,4 @@
 mod blast;
 mod metadata;
 
-pub(crate) use metadata::discover;
+pub(crate) use metadata::{discover, manifest_parent};

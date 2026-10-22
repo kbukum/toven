@@ -38,19 +38,13 @@ pub(super) fn effective_tasks(
         let adapter = adapter_for(module, adapters)?;
         let ecosystem = module.id.ecosystem.as_str();
         let config_tasks = config_tasks(adapter, ecosystem)?;
-        let default = select_task(&config_tasks, intent)
-            .ok_or_else(|| unknown_task_error(ecosystem, intent, &config_tasks))?;
-        if !default.modules.is_empty() && !default.modules.contains(&module.id.name) {
-            return Err(AppError::new(
-                rskit_errors::ErrorCode::InvalidInput,
-                format!(
-                    "task '{}' applies only to {ecosystem} modules {}; '{}' is not one of them",
-                    intent.name(),
-                    default.modules.join(", "),
-                    module.id.name
-                ),
-            ));
-        }
+        let default = select_task(&config_tasks, intent).ok_or_else(|| {
+            unknown_task_error(
+                &[ecosystem],
+                intent,
+                config_tasks.iter().map(task_addressable_name),
+            )
+        })?;
         let effective = match overrides.task(key, intent.name()) {
             Some((group, over)) => {
                 let mut merged = merge_task(&default, over);
@@ -104,47 +98,57 @@ fn config_tasks(
         .collect()
 }
 
-/// Build the typed error for an intent that no config task in `ecosystem`
-/// satisfies. When the ecosystem has no task table at all, point the user at
-/// `toven init` to author one; otherwise enrich the error with the nearest
-/// resolvable task name and the `toven tasks` discovery hint.
+/// Build the typed error for an intent that no config task in `ecosystems`
+/// satisfies. When a single ecosystem has no task table at all, point the user
+/// at `toven init` to author one; otherwise name every ecosystem checked and
+/// enrich the error with the nearest task any of them defines plus the `toven
+/// tasks` discovery hint.
 ///
-/// The candidate set is the ecosystem's config task names (canonical, so
-/// `format` not `fmt`); a nearest match within the default edit-distance is
-/// offered as advisory data in the message. The error stays a typed
-/// [`AppError`] — the CLI's renderer is what prints it.
-pub(super) fn unknown_task_error(
-    ecosystem: &str,
+/// The candidate set is the config task names (canonical, so `format` not
+/// `fmt`); a nearest match within the default edit-distance is offered as
+/// advisory data in the message. The error carries the wanted name as the
+/// `missing_task` detail so callers can recognize it without parsing text. It
+/// stays a typed [`AppError`] — the CLI's renderer is what prints it.
+pub(in crate::plan) fn unknown_task_error<'a>(
+    ecosystems: &[&str],
     intent: &TaskIntent,
-    available: &[Task],
+    available: impl IntoIterator<Item = &'a str>,
 ) -> AppError {
     let wanted = intent.name();
+    let names: std::collections::BTreeSet<&str> = available.into_iter().collect();
     // Built with `AppError::new` rather than `invalid_input` so the rendered line
     // reads as one sentence (`error[INVALID_INPUT]: ecosystem 'rust' has no …`)
     // instead of stuttering an `invalid tasks:` field prefix in front of a message
     // that is already about tasks.
-    if available.is_empty() {
-        return AppError::new(
-            rskit_errors::ErrorCode::InvalidInput,
-            format!(
-                "ecosystem '{ecosystem}' defines no tasks. Run 'toven init' to author its task table in toven.toml."
-            ),
-        );
-    }
-    let names: Vec<String> = available.iter().map(task_addressable_name).collect();
-    let suggestion = rskit_util::strings::nearest(wanted, names.iter().map(String::as_str))
-        .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
-    AppError::new(
-        rskit_errors::ErrorCode::InvalidInput,
-        format!(
-            "ecosystem '{ecosystem}' has no '{wanted}' task.{suggestion} Run 'toven tasks' to list every runnable task."
+    let message = match ecosystems {
+        [ecosystem] if names.is_empty() => format!(
+            "ecosystem '{ecosystem}' defines no tasks. Run 'toven init' to author its task table in toven.toml."
         ),
-    )
+        _ => {
+            let suggestion = rskit_util::strings::nearest(wanted, names.iter().copied())
+                .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
+            let subject = match ecosystems {
+                [ecosystem] => format!("ecosystem '{ecosystem}' has"),
+                many => format!(
+                    "ecosystems {} have",
+                    many.iter()
+                        .map(|ecosystem| format!("'{ecosystem}'"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            };
+            format!(
+                "{subject} no '{wanted}' task.{suggestion} Run 'toven tasks' to list every runnable task."
+            )
+        }
+    };
+    AppError::new(rskit_errors::ErrorCode::InvalidInput, message)
+        .with_detail("missing_task", wanted)
 }
 
 /// The user-addressable canonical name of a resolved task — its identity.
-fn task_addressable_name(task: &Task) -> String {
-    task.name.clone()
+const fn task_addressable_name(task: &Task) -> &str {
+    task.name.as_str()
 }
 
 /// Select the config task a user token resolves to by its addressable name.

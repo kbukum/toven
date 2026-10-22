@@ -14,6 +14,7 @@ use toven_testkit::FakeVcsReader;
 use super::active_modules;
 use crate::federation::baseline::{MemberVcsReader, MemberVcsReaders};
 use crate::plan::discover::Federation;
+use crate::plan::graph::GroupIndex;
 use crate::plan::ownership::changed_records_for_module;
 use crate::plan::request::{PlanRequest, Selection};
 use toven_model::ModuleSelector;
@@ -84,9 +85,15 @@ fn longest_prefix_seeds_the_changed_module_and_its_dependents() {
         "crates/errors/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
     assert!(active.contains(&mkey("rust", "errors")));
     assert!(active.contains(&mkey("rust", "app")));
 
@@ -95,9 +102,15 @@ fn longest_prefix_seeds_the_changed_module_and_its_dependents() {
         "crates/app/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
     assert_eq!(
         active,
         std::collections::BTreeSet::from([mkey("rust", "app")])
@@ -122,9 +135,15 @@ fn blast_radius_glob_activates_the_whole_workspace() {
         "Cargo.lock",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
 }
@@ -165,9 +184,15 @@ fn dirty_worktree_changes_seed_the_affected_set() {
             ChangeStatus::Modified,
         )]);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
     assert!(
         active.contains(&mkey("rust", "errors")),
         "the uncommitted change seeds its owning module"
@@ -200,9 +225,15 @@ fn closure_spans_ecosystems_via_overlay() {
         "crates/shared/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
     assert!(active.contains(&mkey("rust", "shared")));
     assert!(active.contains(&mkey("go", "api")));
 }
@@ -222,7 +253,14 @@ fn unclassifiable_path_fails_open_and_activates_all_modules() {
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
 
     let (request, vcs) = request_for(vec![ChangeRecord::new("README.md", ChangeStatus::Modified)]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap();
     assert_eq!(active.modules.len(), 2);
     assert_eq!(
         active.full_activation,
@@ -249,7 +287,14 @@ fn an_attributable_change_reports_no_full_activation() {
         "crates/app/lib.rs",
         ChangeStatus::Modified,
     )]);
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap();
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap();
     assert_eq!(
         active.modules,
         std::collections::BTreeSet::from([mkey("rust", "app")])
@@ -317,9 +362,15 @@ fn member_readers_prefix_repo_changes_before_classification() {
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
 
-    let active = active_modules(&request, &graph, &federation, &readers)
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &readers,
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&member_key("core", "rust", "shared")));
     assert!(active.contains(&member_key("gateway", "rust", "api")));
@@ -356,9 +407,15 @@ fn member_without_a_baseline_falls_back_to_the_request_spec() {
     )
     .with_selection(Selection::Changed(Some(BaselineSpec::explicit("main"))));
 
-    let active = active_modules(&request, &graph, &federation, &readers)
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &readers,
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&ModuleKey::new(None, mref("rust", "shared"))));
 }
@@ -389,7 +446,14 @@ fn member_without_a_baseline_and_no_request_fallback_is_rejected() {
     )
     .with_selection(Selection::Changed(None));
 
-    let error = active_modules(&request, &graph, &federation, &readers).unwrap_err();
+    let error = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &readers,
+    )
+    .unwrap_err();
 
     assert!(error.to_string().contains("no baseline reference"));
 }
@@ -504,9 +568,15 @@ fn explicit_module_activates_exactly_that_module() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:errors")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     // Without dependents, the reverse-closure dependent (app) is not activated.
     assert_eq!(
@@ -521,9 +591,15 @@ fn bare_name_resolves_when_unique_across_ecosystems() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("errors")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert_eq!(
         active,
@@ -537,7 +613,14 @@ fn bare_name_matching_two_ecosystems_is_an_ambiguity_error() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("core")], false, false);
 
-    let error = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap_err();
+    let error = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap_err();
 
     let message = error.to_string();
     assert!(message.contains("ambiguous"), "{message}");
@@ -551,9 +634,15 @@ fn bare_glob_matching_two_ecosystems_is_the_intended_set() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("cor*")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "core")));
     assert!(active.contains(&mkey("go", "core")));
@@ -565,9 +654,15 @@ fn ecosystem_qualified_glob_scopes_to_its_ecosystem() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:*")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "core")));
     assert!(!active.contains(&mkey("go", "core")));
@@ -579,9 +674,15 @@ fn workspace_qualified_name_scopes_to_its_workspace() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust/app")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert_eq!(
         active,
@@ -595,9 +696,15 @@ fn explicit_module_with_dependents_activates_the_closure() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:errors")], true, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "errors")));
     assert!(active.contains(&mkey("rust", "app")));
@@ -610,9 +717,15 @@ fn explicit_module_with_dependencies_activates_the_forward_closure() {
     // app depends on errors; `--dependencies` pulls in the prerequisite.
     let request = explicit_request(vec![sel("rust:app")], false, true);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -630,9 +743,15 @@ fn dev_only_dependency_is_excluded_from_the_forward_closure_of_a_build() {
         toven_ports::TaskIntent::resolve("build"),
     );
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert_eq!(
         active,
@@ -652,9 +771,15 @@ fn dev_only_dependency_is_included_in_the_forward_closure_of_a_test() {
         toven_ports::TaskIntent::resolve("test"),
     );
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -666,9 +791,15 @@ fn explicit_workspace_activates_every_owned_module() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![whole_ws("rust")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -680,7 +811,14 @@ fn explicit_unknown_module_is_a_typed_error_listing_available() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![sel("rust:ghost")], false, false);
 
-    let error = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap_err();
+    let error = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap_err();
 
     let message = error.to_string();
     assert!(
@@ -696,7 +834,14 @@ fn explicit_unknown_workspace_is_a_typed_error_listing_available() {
     let vcs = FakeVcsReader::new();
     let request = explicit_request(vec![whole_ws("ghost")], false, false);
 
-    let error = active_modules(&request, &graph, &federation, &single_view(&vcs)).unwrap_err();
+    let error = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap_err();
 
     let message = error.to_string();
     assert!(
@@ -714,9 +859,15 @@ fn explicit_overlapping_targets_do_not_false_error_as_unknown() {
     // must not be misread as an unknown module just because it adds no new seed.
     let request = explicit_request(vec![whole_ws("rust"), sel("rust:app")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert!(active.contains(&mkey("rust", "app")));
     assert!(active.contains(&mkey("rust", "errors")));
@@ -730,9 +881,15 @@ fn explicit_duplicate_module_targets_are_idempotent() {
     // second (already-present) occurrence.
     let request = explicit_request(vec![sel("rust:errors"), sel("rust:errors")], false, false);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert_eq!(
         active,
@@ -770,9 +927,15 @@ fn dependencies_and_dependents_union_excludes_prerequisite_siblings() {
     // `other` — a mere co-dependent of base — must not leak in.
     let request = explicit_request(vec![sel("rust:lib")], true, true);
 
-    let active = active_modules(&request, &graph, &federation, &single_view(&vcs))
-        .unwrap()
-        .modules;
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
 
     assert_eq!(
         active,
@@ -798,4 +961,95 @@ fn ambiguous_federation() -> (Federation, Graph) {
     };
     let graph = Graph::build(federation.modules.clone(), federation.edges.clone()).unwrap();
     (federation, graph)
+}
+
+fn group(token: &str) -> ModuleSelector {
+    ModuleSelector::group(token).unwrap()
+}
+
+fn domain_groups() -> GroupIndex {
+    GroupIndex::from_groups([
+        (
+            "core",
+            std::collections::BTreeSet::from([mkey("rust", "errors")]),
+        ),
+        (
+            "apps",
+            std::collections::BTreeSet::from([mkey("rust", "app")]),
+        ),
+    ])
+}
+
+#[test]
+fn group_selector_activates_every_member_of_the_matching_groups() {
+    let (federation, graph) = app_and_errors_federation();
+    let vcs = FakeVcsReader::new();
+    let groups = domain_groups();
+
+    let only_core = explicit_request(vec![group("core")], false, false);
+    let active =
+        active_modules(&only_core, &graph, &federation, &groups, &single_view(&vcs)).unwrap();
+    assert_eq!(
+        active.modules,
+        std::collections::BTreeSet::from([mkey("rust", "errors")])
+    );
+    // A group is a broad selection: members are skipped, not errored, when ineligible.
+    assert!(active.named.is_empty());
+
+    let every = explicit_request(vec![group("*")], false, false);
+    let active = active_modules(&every, &graph, &federation, &groups, &single_view(&vcs))
+        .unwrap()
+        .modules;
+    assert_eq!(active.len(), 2);
+}
+
+#[test]
+fn group_selector_composes_with_the_dependents_closure() {
+    let (federation, graph) = app_and_errors_federation();
+    let vcs = FakeVcsReader::new();
+    let request = explicit_request(vec![group("core")], true, false);
+
+    let active = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &domain_groups(),
+        &single_view(&vcs),
+    )
+    .unwrap()
+    .modules;
+
+    assert!(active.contains(&mkey("rust", "app")));
+}
+
+#[test]
+fn unknown_group_lists_the_declared_groups() {
+    let (federation, graph) = app_and_errors_federation();
+    let vcs = FakeVcsReader::new();
+    let request = explicit_request(vec![group("cor")], false, false);
+
+    let message = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &domain_groups(),
+        &single_view(&vcs),
+    )
+    .unwrap_err()
+    .to_string();
+
+    assert!(message.contains("matches no declared group"), "{message}");
+    assert!(message.contains("Did you mean 'core'?"), "{message}");
+    assert!(message.contains("apps, core"), "{message}");
+
+    let none = active_modules(
+        &request,
+        &graph,
+        &federation,
+        &GroupIndex::default(),
+        &single_view(&vcs),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(none.contains("No [groups.*] are declared"), "{none}");
 }

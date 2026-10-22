@@ -46,7 +46,7 @@ pub(crate) fn execute(
     project: &Project,
     cli: &Cli,
 ) -> AppResult<ExitCode> {
-    let selection = coverage_selection(cli);
+    let selection = TaskSelection::from(&cli.execution);
     let overrides = build_overrides(cli);
 
     // Reject a bad coverage config (for example a typo in `exclude`) before
@@ -201,17 +201,6 @@ fn stream(
         reporter.as_mut(),
         overrides,
     )
-}
-
-/// Build the coverage selection from the global selection flags.
-fn coverage_selection(cli: &Cli) -> TaskSelection {
-    TaskSelection {
-        baseline: cli.execution.baseline_flags(),
-        modules: cli.execution.module.clone(),
-        workspaces: cli.execution.workspace.clone(),
-        with_dependents: cli.execution.with_dependents,
-        with_dependencies: cli.execution.with_dependencies,
-    }
 }
 
 /// Build the per-run threshold overrides from the parsed coverage argv.

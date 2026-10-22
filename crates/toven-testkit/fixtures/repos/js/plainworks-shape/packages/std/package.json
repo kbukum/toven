@@ -1,0 +1,18 @@
+{
+  "name": "@pw/std",
+  "version": "0.1.0-alpha.1",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
+    "check-packaging": "plainworks-release check-packaging"
+  },
+  "devDependencies": {
+    "@pw/vitest-config": "workspace:*",
+    "vitest": "catalog:"
+  }
+}

@@ -74,6 +74,20 @@ pub enum Event {
         /// Number of execution units.
         units: usize,
     },
+    /// An active module was left out of the plan because it is not eligible
+    /// for the task. Advisory: it explains the skip and never changes the run
+    /// outcome.
+    ModuleSkipped {
+        /// The skipped module (its canonical key).
+        module: String,
+        /// The task it was skipped for.
+        task: String,
+        /// The stable skip code (`not-listed`, `missing-capabilities`).
+        reason: String,
+        /// The required capabilities the module does not provide.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        missing: Vec<String>,
+    },
     /// A per-unit cache verdict was decided.
     CacheDecided {
         /// Unit the verdict applies to.

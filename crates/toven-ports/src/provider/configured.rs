@@ -1,11 +1,13 @@
 //! The config-bearing adapter instance produced by [`Provider::configure`].
 
 use rskit_errors::AppResult;
+use toven_model::{AbsPath, ToolchainTag};
 
 use crate::{
     VcsReader,
     config::{CommonEcosystemConfig, RunStrategy},
     discover::{DiscoverRequest, DiscoverResponse},
+    provider::DoctorScope,
     release::ReleaseAdapter,
     task::{TaskIntent, TaskKind, ToolchainProbe},
 };
@@ -21,25 +23,56 @@ pub trait ConfiguredAdapter {
     /// Discover this ecosystem's modules, edges, and workspaces.
     fn discover(&self, request: &DiscoverRequest) -> AppResult<DiscoverResponse>;
 
-    /// The probe spec the planner runs once per active workspace to compose the
-    /// toolchain version identity.
+    /// The ecosystem-wide default probe: the tool every workspace of this
+    /// ecosystem runs unless [`toolchain_probes_for`](Self::toolchain_probes_for)
+    /// narrows it per workspace and task. `doctor` audits it when no workspace
+    /// is known.
     fn toolchain_probe(&self) -> ToolchainProbe;
 
-    /// The toolchain probes the planner runs for a workspace when the run
-    /// targets `intent`, scoped to the tools that specific task actually needs.
+    /// The toolchain probes the planner runs for one workspace when the run
+    /// targets `intent`, scoped to the tools that workspace's task actually
+    /// needs.
     ///
-    /// Defaults to the single ecosystem-wide [`toolchain_probe`](Self::toolchain_probe),
-    /// which is correct for tooling-backed adapters whose whole workspace shares
-    /// one toolchain (one `cargo`, one `go`). The escape-hatch **command**
-    /// adapter overrides this: its tasks are heterogeneous tools sharing one
-    /// declared workspace, so it returns the probe(s) for the addressed task
-    /// (e.g. `ast-grep` for `structure`, `mdbook` for `docs-build`) rather than
-    /// probing every command tool on every run. Returning an empty vector means
-    /// "no toolchain to probe"; the planner then keeps the workspace's existing
-    /// toolchain tag unversioned.
-    fn toolchain_probes_for(&self, intent: &TaskIntent) -> Vec<ToolchainProbe> {
-        let _ = intent;
-        vec![self.toolchain_probe()]
+    /// `toolchain` is the workspace's discovered [`ToolchainTag`]: its `tool`
+    /// names the driver discovery chose for that workspace. Tooling adapters
+    /// whose every workspace shares one toolchain (one `cargo`, one `go`)
+    /// ignore it and return the ecosystem-wide
+    /// [`toolchain_probe`](Self::toolchain_probe), which is the default. An
+    /// adapter whose workspaces use different drivers (a `js` root on `pnpm`
+    /// next to one on `bun`) probes that workspace's driver instead. The
+    /// escape-hatch **command** adapter returns the probe for the addressed
+    /// task's own tool (e.g. `ast-grep` for `structure`). Returning an empty
+    /// vector means "no toolchain to probe"; the planner then keeps the
+    /// workspace's toolchain tag unversioned.
+    ///
+    /// # Errors
+    /// An adapter that answers remotely (a federation driver) propagates its
+    /// transport or remote failure.
+    fn toolchain_probes_for(
+        &self,
+        toolchain: &ToolchainTag,
+        intent: &TaskIntent,
+    ) -> AppResult<Vec<ToolchainProbe>> {
+        let _ = (toolchain, intent);
+        Ok(vec![self.toolchain_probe()])
+    }
+
+    /// What `toven doctor` audits for this ecosystem in the repository at
+    /// `project_root`: the toolchains to probe and the ecosystem's health checks.
+    ///
+    /// The default audits the ecosystem-wide
+    /// [`toolchain_probe`](Self::toolchain_probe) program with no checks. An
+    /// adapter whose workspaces use different drivers returns the drivers this
+    /// repository actually uses, and an adapter can add offline checks (an
+    /// install that is missing or older than its lockfile).
+    ///
+    /// # Errors
+    /// The adapter cannot read the repository, or a federation driver fails.
+    fn doctor(&self, project_root: &AbsPath) -> AppResult<DoctorScope> {
+        let _ = project_root;
+        Ok(DoctorScope::new(vec![ToolchainTag::new(
+            self.toolchain_probe().program,
+        )]))
     }
 
     /// The default wave-ordering policy for `kind` (ecosystem override

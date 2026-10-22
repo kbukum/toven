@@ -1,0 +1,27 @@
+# A plainworks-shaped npm workspace for release scenarios: `ui -> core`,
+# `cli -> ui (workspace:^), core (~)`, and a private `docs` site. Private
+# packages stay out of the release by default; `docs` opts in below, so it is
+# versioned and tagged but never published. No lockfile, so scenarios need no
+# package manager; registry queries stay offline.
+[project]
+name = "js-release-train"
+
+[ecosystems.js]
+roots = "auto"
+
+[ecosystems.js.release]
+strategy = "semver-cascade"
+level = "minor"
+dependent_version = "bump"
+push = false
+registry = "npmjs"
+# Golden scenarios must stay network-free: idempotency anchors on release
+# tags rather than live registry queries.
+offline = true
+
+[ecosystems.js.release.prerelease]
+channels = ["alpha", "beta", "rc"]
+
+# A private package opts in to a tag-only release.
+[modules."js:packages-docs".release]
+exclude = false

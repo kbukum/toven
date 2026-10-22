@@ -1,0 +1,21 @@
+# Two command modules where only `app` declares the `bin` capability, for
+# capability-gated targeting: a task with `requires = ["bin"]` runs on `app`,
+# skips `lib` with a reason, and errors when `lib` is named exactly.
+[project]
+name = "capabilities-command"
+
+[toven]
+include = ["_profiles/command-tasks.toml"]
+
+[[ecosystems.command.modules]]
+name = "app"
+root = "."
+capabilities = ["bin"]
+
+[[ecosystems.command.modules]]
+name = "lib"
+root = "."
+
+[ecosystems.command.tasks.serve]
+argv = ["echo", "command serve"]
+requires = ["bin"]

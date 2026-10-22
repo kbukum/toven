@@ -3,13 +3,15 @@
 use std::sync::Arc;
 
 use rskit_errors::AppResult;
+use toven_model::AbsPath;
 use toven_ports::{
-    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, ReleaseAdapter,
-    RunStrategy, TaskKind, ToolRunner, ToolchainProbe, VcsReader,
+    CommonEcosystemConfig, ConfiguredAdapter, DiscoverRequest, DiscoverResponse, DoctorScope,
+    ReleaseAdapter, RunStrategy, TaskKind, ToolRunner, ToolchainProbe, VcsReader,
 };
 
 use crate::config::GoConfig;
 use crate::discovery;
+use crate::doctor;
 use crate::exec::GoTool;
 use crate::release::GoVcsTarget;
 use crate::tasks;
@@ -46,6 +48,10 @@ impl ConfiguredAdapter for GoAdapter {
 
     fn toolchain_probe(&self) -> ToolchainProbe {
         toolchain::go_probe()
+    }
+
+    fn doctor(&self, project_root: &AbsPath) -> AppResult<DoctorScope> {
+        doctor::scope(&self.config, project_root.as_path(), &self.go())
     }
 
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
