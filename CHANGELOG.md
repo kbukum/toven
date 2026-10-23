@@ -22,6 +22,10 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 - The GitHub action installs the release matching its own pinned commit when `version` is empty, so consumers pin only the action SHA and Dependabot can bump it. It no longer falls back to the latest release.
 
+### Fixed
+
+- `strategy = "manifest"` now cuts a declared version that is ahead of the last release tag even when no module's sources changed. Before, a version-only release planned nothing and `release publish` exited without tagging. The release workflow now fails if publish leaves no tag on the release commit.
+
 ## [0.1.0-alpha.15] - 2026-10-22
 
 ### Added
