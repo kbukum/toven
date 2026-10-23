@@ -28,13 +28,13 @@ make check
 make coverage
 ```
 
-`make check` is the canonical gate. It runs formatting, clippy, workspace tests, rustdoc, the declare-only structure guard, the dependency and license audit, and a release build. `make coverage` enforces the configured coverage floor. `make verify-release-platform` is the focused release go/no-go: it fails on an empty scenario filter or a scenario skipped for a missing tool.
+`make doctor` checks that the tools are installed. `make check` is the canonical gate and `make coverage` enforces the coverage floor; the [gates section](docs/engineering.md#gates) says what each one checks. `make verify-release-platform` is the focused release go/no-go: it fails on an empty scenario filter or a scenario skipped for a missing tool.
 
 If you are working on packaging or release behavior, `toven release package --target <triple>` archives a built binary into its declared hosted-release asset without publishing it.
 
 ## Project status
 
-Toven is in **alpha**. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases), and the workspace is still settling into a hexagonal `crates/*` + `apps/*` stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable, so prefer clean redesigns over compatibility shims. See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
+Toven is in **alpha**. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases). The workspace is a hexagonal `crates/*` + `apps/*` stack on top of the [rskit](https://github.com/kbukum/rskit) foundation framework. Toven and rskit are both pre-stable, so prefer clean redesigns over compatibility shims; see the [stability policy](docs/engineering.md#public-api-and-stability). See [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made.
 
 ## Checks
 
@@ -52,37 +52,16 @@ make act-release-readiness
 
 CodeQL, artifact signing, and provenance attestations remain GitHub-hosted validation paths; the local substitutes are `make check`, `make coverage`, and the engine release verbs (`toven release plan | package | checksums | verify`).
 
-## Workspace layout
+## Where code goes and the rules it follows
 
-One Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`) with layers depending downward only. At a high level:
-
-- **Foundations:** `crates/toven-model`, `crates/toven-semver`
-- **Ports and focused mechanisms:** `crates/toven-ports`, `crates/toven-exec`, `crates/toven-vcs`
-- **Planning and release engines:** `crates/toven-core`, `crates/toven-version`, `crates/toven-release`, `crates/toven-engine`, `crates/toven-runtime`
-- **Ecosystem adapters:** `crates/toven-rust`, `crates/toven-go`, `crates/toven-command`
-- **CLI and app binaries:** `crates/toven-cli`, `apps/toven`, `apps/toven-rs`, `apps/toven-go`
-- **Shared test surface:** `crates/toven-testkit` (`publish = false`) for fixtures, port doubles, and sample-repo/git scenarios
-
-The vendored `rskit/` submodule is a separate workspace consumed via path deps.
-
-## Code conventions
-
-- `cargo fmt` (edition 2024, `max_width = 100`) and `cargo clippy` (`all`/`pedantic`/`nursery` warn) must be clean.
-- `unsafe_code = "forbid"` and `missing_docs = "warn"` apply workspace-wide; document public items with `///`.
-- `#[must_use]` on `with_*` builder methods; `#[non_exhaustive]` on public enums that may grow.
-- No `unwrap()` / `expect()` in library code (tests are fine); surface typed `AppError` / `AppResult` and preserve the cause.
-- Libraries never print — only the CLI/reporting layer produces user-facing output.
-- Reuse or enhance the canonical rskit owner for shared concerns (errors, config, validation, filesystem, git) instead of forking a Toven-specific copy. If rskit is missing something, improve it generically.
-
-## Testing
-
-- Tests are behavioral and deterministic, with no real network access.
-- Use `toven-testkit` fixtures and declarative case files instead of embedding large config/TOML strings in tests.
-- Cover failure paths and add a regression test for every fix.
+- [Architecture](docs/architecture.md) owns the crate layers and where new code belongs.
+- The [engineering standard](docs/engineering.md) owns code, test, docs, and security rules, and marks which ones a gate checks.
+- [Testing](docs/testing.md) explains the fixtures and the test layout.
+- The [Definition of Done](docs/engineering.md#definition-of-done) is the checklist a pull request must meet.
 
 ## Commit style
 
-Use Conventional Commits, such as `feat: add scheduler model`, `fix: reject invalid selector macros`, and `docs: explain cache keys`.
+Use Conventional Commits, such as `feat: add scheduler model`, `fix: reject invalid selector macros`, and `docs: explain cache keys`. CI checks the pull request title.
 
 ## Pull requests
 

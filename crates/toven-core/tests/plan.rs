@@ -1289,7 +1289,74 @@ fn a_task_list_naming_a_task_no_ecosystem_defines_still_errors() {
         &mut reporter,
     )
     .expect_err("a task no ecosystem defines is rejected");
-    assert!(error.to_string().contains("has no 'bogus' task"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("ecosystems 'command', 'rust' have no 'bogus' task"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_changed_selection_outside_the_task_defining_ecosystems_plans_nothing() {
+    // A docs-only change touches command:repo alone. `test` lives only in the
+    // rust ecosystem, so the affected run has nothing to do — it is not an
+    // unknown task.
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("test"))
+        .with_selection(Selection::ChangedPaths(vec!["docs/intro.md".to_string()]));
+    let plan = plan(
+        &request,
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect("an affected set without the task plans nothing");
+    assert!(plan.units.is_empty(), "{:?}", plan.units);
+}
+
+#[test]
+fn a_task_typo_on_a_changed_selection_suggests_from_every_ecosystem() {
+    // The docs-only change activates command:repo alone, yet the typo hint must
+    // still find `test` in the rust ecosystem.
+    let rust = rust_provider();
+    let command = command_provider();
+    let providers: Vec<&dyn Provider> = vec![&rust, &command];
+    let vcs = FakeVcsReader::new();
+    let digest = FakeSourceDigest::new();
+    let prober = ScriptedToolchainProber::new();
+    let cache = FakeCacheStore::new();
+    let mut reporter = RecordingReporter::new();
+
+    let readers = MemberVcsReaders::single(&vcs, toven_ports::BaselineSpec::explicit("main"));
+    let host = PlanHost::new(&readers, &digest, &prober, &cache);
+    let request = request(TaskIntent::resolve("tset"))
+        .with_selection(Selection::ChangedPaths(vec!["docs/intro.md".to_string()]));
+    let error = plan(
+        &request,
+        &two_ecosystem_document(),
+        &providers,
+        host,
+        &mut reporter,
+    )
+    .expect_err("a task no ecosystem defines is rejected");
+    let message = error.to_string();
+    assert!(
+        message.contains("ecosystems 'command', 'rust' have no 'tset' task"),
+        "{message}"
+    );
+    assert!(message.contains("Did you mean 'test'?"), "{message}");
 }
 
 #[test]

@@ -19,7 +19,7 @@ Running `toven test -- --nocapture` appends `--nocapture` at `{args}` unchanged.
 
 ## Modules and workspaces
 
-A module is the smallest discovered unit Toven plans. Rust modules are Cargo packages. Go modules are identified by their repository-relative module roots. A workspace groups modules discovered from the same Cargo workspace or Go workspace.
+A module is the smallest discovered unit Toven plans. Rust modules are Cargo packages. Go modules are identified by their repository-relative module roots. JavaScript and TypeScript modules are packages in an npm, pnpm, Yarn, or Bun workspace. Command modules are declared in `toven.toml`. A workspace groups modules discovered from the same Cargo, Go, or JavaScript workspace.
 
 Canonical module references include the ecosystem:
 
@@ -28,13 +28,9 @@ command:repo
 rust:toven-engine
 ```
 
-## Current workspace shape
-
-The current Toven workspace is a Cargo workspace over `crates/*` and `apps/*`. Today that means `crates/toven-cli`, `toven-command`, `toven-core`, `toven-engine`, `toven-exec`, `toven-go`, `toven-js`, `toven-model`, `toven-ports`, `toven-release`, `toven-runtime`, `toven-rust`, `toven-semver`, `toven-testkit`, `toven-vcs`, and `toven-version`, plus the thin binaries in `apps/toven`, `apps/toven-rs`, `apps/toven-go`, and `apps/toven-js`.
-
 ## Dependency graph
 
-Adapters derive native dependency edges from Cargo or Go metadata. Explicit overlays describe cross-ecosystem edges that native tools cannot prove. The resulting graph controls affected selection, dependency expansion, execution waves, and release cascades.
+Adapters derive native dependency edges from Cargo, Go, or JavaScript package metadata. Explicit overlays describe cross-ecosystem edges that native tools cannot prove. The resulting graph controls affected selection, dependency expansion, execution waves, and release cascades.
 
 ## Plan and apply
 

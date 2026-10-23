@@ -16,6 +16,17 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Security
 
+## [0.1.0-alpha.17] - 2026-10-23
+
+### Fixed
+
+- A changed-scope run (`--base`, `affected`) whose changes touch only ecosystems without the task now plans nothing and succeeds. Before, a docs-only change failed `toven test --base …` with "ecosystem 'command' has no 'test' task". A task that no ecosystem defines is still an error, and its typo hint now draws on every configured ecosystem.
+- Command tasks whose program is a path (such as `scripts/check.sh`) are no longer run with `--version` to probe the toolchain. Before, `toven doctor` and every run executed those repo scripts, which could regenerate files or print usage errors. Only programs looked up on `PATH` are probed now.
+
+### Security
+
+- Update `tokio` to 1.54.1 through the rskit submodule to resolve RUSTSEC-2026-0386 (unsound `AsyncFd` registration).
+
 ## [0.1.0-alpha.16] - 2026-10-22
 
 ### Changed

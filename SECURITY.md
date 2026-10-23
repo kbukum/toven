@@ -60,14 +60,14 @@ Toven runs against untrusted repositories and forwards user-authored commands, s
 ## Security Best Practices for Users
 
 - Keep dependencies current and run `make deny` before shipping dependency changes.
-- Review `cargo deny` advisory and license findings regularly; CI runs supply-chain checks on changes that affect Rust code, Cargo metadata, or workflow inputs.
+- Review `cargo deny` advisory and license findings regularly; the supply-chain workflow runs on every pull request and on pushes to `main`.
 - Treat `toven.toml` as code: review changes to command templates and adapters as carefully as source.
 - Never commit secrets — use environment variables or a secret manager.
 
 ## Supply Chain
 
-- All GitHub Actions used in CI are pinned to commit SHAs (see `.github/workflows/`).
+- GitHub Actions in `.github/workflows/` are pinned to commit SHAs. Review keeps them pinned; no CI linter checks this yet (see [known gaps](docs/engineering.md#known-gaps)).
 - Dependency updates are automated via Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)).
-- The Rust toolchain is pinned via `rust-toolchain.toml`; CI enforces this rule. `Cargo.lock` is committed and checked via locked Cargo operations.
+- The Rust toolchain is pinned in `rust-toolchain.toml`, and the CI matrix installs the same version. Nothing checks that the two match yet. `Cargo.lock` is committed and used by locked Cargo operations.
 - Supply-chain policy is enforced by [`cargo-deny`](https://embarkstudios.github.io/cargo-deny/) via [`deny.toml`](deny.toml): advisory database, license allowlist, banned crates, and source allowlist.
-- Release automation generates an SBOM and targets Sigstore signing and SLSA provenance for published artifacts.
+- The release workflow generates a CycloneDX SBOM, signs `SHA256SUMS` with keyless Sigstore cosign, and attaches GitHub build provenance attestations to published artifacts. See the [supply chain and release rules](docs/engineering.md#supply-chain-and-release).

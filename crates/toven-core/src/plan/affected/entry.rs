@@ -180,10 +180,10 @@ pub enum ExplicitScope {
 ///   selection narrows like a broad one and stops counting as named, so
 ///   `build,lint -m worker` runs the build and reports `lint` as skipped on
 ///   `worker`; the caller rejects a list that plans nothing on the selection.
-/// - When *no* active ecosystem defines the task the set is returned unchanged,
-///   so scheduling raises that same unknown-task error (and the CLI its typo
-///   hint) exactly as before. Under [`ExplicitScope::Narrow`] this applies only
-///   when no ecosystem at all defines it; otherwise the task is skipped.
+/// - When *no* configured ecosystem defines the task, the unknown-task error
+///   (and the CLI its typo hint) is raised. When only the active modules lack
+///   it — a changed set that touched just other ecosystems, or one task of a
+///   list — the set narrows to empty and nothing runs for that task.
 ///
 /// The `full_activation` diagnostic survives narrowing: a forced full run still
 /// activates every module that defines the task, and the CLI must say why.
@@ -211,16 +211,15 @@ pub fn restrict_to_task_defining(
         .filter(|key| task_entry(adapters, key, wanted).is_some())
         .cloned()
         .collect();
-    // No active ecosystem defines the task. In a list, a task some other
-    // ecosystem defines simply has nothing to run on the selected modules;
-    // otherwise the task is unknown across the whole selection.
+    // No active ecosystem defines the task. When another configured ecosystem
+    // defines it, the task simply has nothing to run on this selection (a
+    // changed set or a list entry); otherwise the task is unknown.
     if defining.is_empty() && !active.modules.is_empty() {
-        let defined_elsewhere = explicit == ExplicitScope::Narrow
-            && adapters
-                .iter()
-                .any(|(_, _, adapter)| adapter.common().tasks.contains_key(wanted));
+        let defined_elsewhere = adapters
+            .iter()
+            .any(|(_, _, adapter)| adapter.common().tasks.contains_key(wanted));
         if !defined_elsewhere {
-            return Err(unknown_in_selection(&active.modules, adapters, request));
+            return Err(unknown_in_config(adapters, request));
         }
     }
     Ok(ActiveModules {
@@ -234,22 +233,15 @@ pub fn restrict_to_task_defining(
     })
 }
 
-/// The unknown-task error for a selection where no module's ecosystem defines
-/// the task: it names every selected ecosystem and suggests from all of their
-/// task names.
-fn unknown_in_selection(
-    modules: &BTreeSet<ModuleKey>,
-    adapters: &MemberAdapters,
-    request: &PlanRequest,
-) -> AppError {
+/// The unknown-task error for a task no configured ecosystem defines: it names
+/// every configured ecosystem and suggests from all of their task names, so a
+/// typo is caught even when the selection touched only other ecosystems.
+fn unknown_in_config(adapters: &MemberAdapters, request: &PlanRequest) -> AppError {
     let mut ecosystems = BTreeSet::new();
     let mut names = BTreeSet::new();
-    for key in modules {
-        let ecosystem = &key.module().ecosystem;
+    for (_, ecosystem, adapter) in adapters.iter() {
         ecosystems.insert(ecosystem.as_str());
-        if let Some(adapter) = adapters.get(key.member(), ecosystem) {
-            names.extend(adapter.common().tasks.keys().map(String::as_str));
-        }
+        names.extend(adapter.common().tasks.keys().map(String::as_str));
     }
     let ecosystems: Vec<&str> = ecosystems.into_iter().collect();
     unknown_task_error(&ecosystems, &request.intent, names)

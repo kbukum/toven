@@ -18,7 +18,7 @@ TOVEN ?= cargo run --quiet --locked -p toven --
 .PHONY: check doctor fmt fmt-check lint test test-nextest doctest structure doc docs-serve docs-build deny coverage affected smoke smoke-repo benchmark golden bless verify-release-platform release-dry-run release-plan act-ci act-supply-chain act-release-readiness check-static
 
 # Canonical local/CI gate for the virtual workspace. Every non-exempt gate
-# resolves through Toven (see the tmp/toven-self-application plan); `fmt-check`
+# resolves through Toven (see docs/self-hosting.md); `fmt-check`
 # is the one documented native exception (a single fast workspace rustfmt pass).
 check: check-static test
 

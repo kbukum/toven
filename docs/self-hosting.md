@@ -45,23 +45,23 @@ The gate includes formatting, linting, nextest, doctests, structure checks, rust
 | Rust doctests | Toven `doctest` task (`cargo test --doc`) |
 | Dependency policy (cargo-deny) | Toven `deny` task |
 | Declare-only structure (ast-grep) | Toven `structure` task (command ecosystem) |
-| Documentation build (mdbook) | Toven `docs-build` task (command ecosystem) |
 | rustfmt workspace check | Native Cargo — the sole documented exception |
 
 `fmt-check` stays native on purpose: `make check` gates the whole workspace in one fast `cargo fmt --all --check` pass. The granular `format`/`format-check` Rust tasks are still available through Toven. Every other gate runs through `toven run <task>`, and per-task `command -v` tool guards are replaced by a single [`doctor`](commands/doctor.md) audit.
 
 `make doctor` (`toven doctor --ensure`) is the single source of truth for required tooling: it walks the resolved task graph, reports every tool its tasks need (`cargo`, `ast-grep`, `mdbook`), and fails closed on a gap. CI provisions against that report and runs it as a fail-fast gate before the rest of the surface, so a missing tool surfaces once, up front, rather than mid-gate.
 
-Additional entry points are:
+Additional entry points, outside `make check`, are:
 
 ```bash
+make docs-build
 make affected
 make coverage
 make release-plan
 make smoke
 ```
 
-`release-plan` runs release plan, readiness, SBOM, and dependency graph previews. It does not approve or perform a release.
+`docs-build` builds the mdBook site through the Toven `docs-build` task (command ecosystem); CI runs it in the self-canary workflow. `release-plan` runs release plan, readiness, SBOM, and dependency graph previews. It does not approve or perform a release.
 
 ## Release approval pipeline
 
@@ -127,7 +127,7 @@ The canary builds the release binary, packages it into its `dist/` archive with 
 
 - **Discovery and planning** — `modules`, `plan check`.
 - **Required-tool audit** — `doctor --ensure`.
-- **The full `make check` gate surface** via `make TOVEN=<binary>` — `lint`, `test` (nextest + doctests), `doc`, `structure`, `deny`, `docs-build`, `coverage`, `affected` — plus the `format-check` and `vuln` mapped tasks.
+- **The `make check` gate surface plus `docs-build`, `coverage`, and `affected`** via `make TOVEN=<binary>` — `lint`, `test` (nextest + doctests), `doc`, `structure`, `deny`, `docs-build`, `coverage`, `affected` — plus the `format-check` and `vuln` mapped tasks.
 - **Read-only verbs** — `explain`, `init --print` (asserted to leave the tree clean), `completions`, `cache path`.
 - **Mutation-free release previews** — `release plan`/`status`/`readiness`/`sbom`/`depgraphs` and `publish --dry-run`.
 

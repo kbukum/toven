@@ -4,7 +4,7 @@ How Toven makes decisions, who can make them, and how releases and security issu
 
 ## Project Status
 
-Toven is in **alpha**. Backward compatibility is not guaranteed while the core planner, execution model, cache semantics, and discovery adapter interfaces are still settling. Breaking changes are acceptable when they produce a cleaner long-term design.
+Toven is in **alpha**. Backward compatibility is not guaranteed while the core planner, execution model, cache semantics, and discovery adapter interfaces are still settling. Breaking changes are acceptable when they produce a cleaner long-term design. The [stability policy](docs/engineering.md#public-api-and-stability) lists the contracts tools can rely on.
 
 ## Roles
 
