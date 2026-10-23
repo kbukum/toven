@@ -364,6 +364,24 @@ mod tests {
     }
 
     #[test]
+    fn explicit_roots_reach_into_skipped_test_data_directories() {
+        let dir = tree(&[
+            ("web/package.json", r#"{"name":"web"}"#),
+            ("fixtures/app/package.json", r#"{"name":"app"}"#),
+            ("fixtures/app/bun.lock", ""),
+        ]);
+        assert_eq!(summary(&auto(dir.path())), [("web".to_string(), vec![])]);
+        let fixture = JsConfig {
+            roots: Roots::Explicit(vec!["fixtures/app/package.json".to_string()]),
+            ..JsConfig::default()
+        };
+        assert_eq!(
+            summary(&resolve(&fixture, dir.path()).expect("roots")),
+            [("fixtures/app".to_string(), vec![])]
+        );
+    }
+
+    #[test]
     fn explicit_roots_must_stay_inside_and_exist() {
         let dir = tree(&[("package.json", "{}")]);
         for (root, code) in [

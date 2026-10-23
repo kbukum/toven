@@ -25,6 +25,7 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 ### Fixed
 
 - `strategy = "manifest"` now cuts a declared version that is ahead of the last release tag even when no module's sources changed. Before, a version-only release planned nothing and `release publish` exited without tagging. The release workflow now fails if publish leaves no tag on the release commit.
+- JavaScript discovery skips test-data directories (`testdata`, `fixtures`, `__fixtures__`), so a deliberately broken fixture no longer fails `toven init` or planning. List a root explicitly to manage one inside these directories.
 
 ## [0.1.0-alpha.15] - 2026-10-22
 
