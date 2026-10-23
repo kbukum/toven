@@ -264,15 +264,19 @@ jobs:
           set -eo pipefail
           cargo run --locked -p toven -- release publish --yes --output jsonl | tee release-publish.jsonl
 
-      # The publish step above creates the annotated release tag on HEAD, so the
-      # most recent reachable tag is exactly what was just published. Surface it
-      # as a job output for the downstream package-manager publish, independent
-      # of tag-format config or Cargo.toml parsing.
+      # The publish step above creates the annotated release tag on HEAD. Require
+      # a tag exactly on HEAD: a publish that cut nothing must fail here rather
+      # than pick up the previous release's tag. Surface it as a job output for
+      # the downstream package-manager publish, independent of tag-format config
+      # or Cargo.toml parsing.
       - name: Capture the published tag
         id: published-tag
         run: |
           set -euo pipefail
-          tag="$(git describe --tags --abbrev=0)"
+          if ! tag="$(git describe --tags --exact-match HEAD)"; then
+            echo "::error::release publish created no tag on HEAD; nothing was released" >&2
+            exit 1
+          fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       # Build provenance is cut here by GitHub's trusted builder over the exact

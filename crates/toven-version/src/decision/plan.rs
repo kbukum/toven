@@ -111,7 +111,7 @@ struct BumpDecision {
 struct Decision<'a> {
     cfg: &'a BumpConfig<'a>,
     inputs: BTreeMap<ModuleKey, VersionInputs>,
-    changed: BTreeSet<ModuleKey>,
+    seeds: BTreeSet<ModuleKey>,
 }
 
 impl<'a> Decision<'a> {
@@ -119,13 +119,13 @@ impl<'a> Decision<'a> {
         Self {
             cfg,
             inputs: BTreeMap::new(),
-            changed: BTreeSet::new(),
+            seeds: BTreeSet::new(),
         }
     }
 
     fn insert(&mut self, input: VersionInputs) {
-        if input.changed {
-            self.changed.insert(input.module.clone());
+        if seeds_release(self.cfg, &input) {
+            self.seeds.insert(input.module.clone());
         }
         self.inputs.insert(input.module.clone(), input);
     }
@@ -292,8 +292,7 @@ impl<'a> BumpPlanner<'a> {
                 entry,
             });
         }
-        let forces = self.decision.cfg.overrides.forces(&reference.module);
-        let is_seed = self.decision.changed.contains(&reference) || forces;
+        let is_seed = self.decision.seeds.contains(&reference);
         let active = is_seed || !dep_floor_updates.is_empty();
         if !active {
             self.next += 1;
@@ -424,14 +423,9 @@ fn reject_duplicate_inputs(inputs: &[VersionInputs]) -> AppResult<()> {
 #[allow(clippy::too_many_lines)]
 pub fn plan_bumps(inputs: &[VersionInputs], cfg: &BumpConfig<'_>) -> AppResult<BumpPlan> {
     reject_duplicate_inputs(inputs)?;
-    // Seed the release from every changed module AND every module an explicit
-    // override forces in (a per-module or workspace-wide `--set-version`/level).
-    // A forced-but-unchanged module — the root/hosted module of a lock-step set
-    // is the canonical case — must join the release rather than being scoped out
-    // by the changed-only closure and later rejected as "not in scope".
     let seeds = inputs
         .iter()
-        .filter(|input| input.changed || cfg.overrides.forces(&input.module.module))
+        .filter(|input| seeds_release(cfg, input))
         .map(|input| input.module.clone())
         .collect();
     let active = cfg.graph.closure(&seeds, release_closure_edge)?;
@@ -447,6 +441,26 @@ pub fn plan_bumps(inputs: &[VersionInputs], cfg: &BumpConfig<'_>) -> AppResult<B
         planner.decide((*input).clone())?;
     }
     planner.finish()
+}
+
+/// Whether a module seeds the release on its own, before any cascade.
+///
+/// A module seeds when it changed since its baseline, when an explicit override
+/// forces it in (a per-module or workspace-wide `--set-version`/level; the
+/// root/hosted module of a lock-step set is the canonical case), or, under the
+/// `manifest` policy, when it declares a version ahead of its released baseline.
+/// The reviewed manifest bump is that policy's release decision, so a
+/// version-only release with no source change still cuts the declared version.
+fn seeds_release(cfg: &BumpConfig<'_>, input: &VersionInputs) -> bool {
+    let module_ref = &input.module.module;
+    if input.changed || cfg.overrides.forces(module_ref) {
+        return true;
+    }
+    cfg.policy == BumpPolicy::Manifest
+        && matches!(
+            (&input.current_version, &input.baseline.version),
+            (Some(current), Some(base)) if current > base
+        )
 }
 
 /// Resolve the bump decision for a maintainer-owned module: plan exactly the
@@ -551,7 +565,7 @@ fn resolve_bump(
         });
     }
 
-    let is_seed = decision.changed.contains(reference) || cfg.overrides.forces(module_ref);
+    let is_seed = decision.seeds.contains(reference);
 
     // The prerelease channel is only consulted for a module that cuts its own
     // version, so it is resolved here for a changed seed and lazily below for a
@@ -1572,6 +1586,40 @@ mod tests {
         assert_eq!(plan.entries.len(), 1);
         assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 2, 0)));
         assert_eq!(plan.entries[0].reason, BumpReason::Manifest);
+    }
+
+    #[test]
+    fn manifest_policy_cuts_a_declared_version_ahead_of_the_baseline_without_source_changes() {
+        // A version-only release: the reviewed manifest bump is the release
+        // decision even when change detection sees no module source change.
+        let mut input = seed("core", "0.2.0", Some("0.1.0"), config());
+        input.changed = false;
+
+        let plan = plan_seed(&[input], BumpPolicy::Manifest, CutIntent::Verify);
+
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 2, 0)));
+        assert_eq!(plan.entries[0].reason, BumpReason::Manifest);
+    }
+
+    #[test]
+    fn manifest_policy_leaves_an_unchanged_module_at_its_baseline_out_of_the_release() {
+        let mut input = seed("core", "0.1.0", Some("0.1.0"), config());
+        input.changed = false;
+
+        let plan = plan_seed(&[input], BumpPolicy::Manifest, CutIntent::Verify);
+
+        assert!(plan.entries.is_empty());
+    }
+
+    #[test]
+    fn semver_cascade_does_not_seed_an_unchanged_module_from_its_declared_version() {
+        let mut input = seed("core", "0.2.0", Some("0.1.0"), config());
+        input.changed = false;
+
+        let plan = plan_seed(&[input], BumpPolicy::SemverCascade, CutIntent::Verify);
+
+        assert!(plan.entries.is_empty());
     }
 
     #[test]

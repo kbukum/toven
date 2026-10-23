@@ -405,7 +405,7 @@ exclude = true
 
 ### Changesets coexistence
 
-A repository that keeps Changesets can let Changesets write the versions while Toven tags and publishes them. Set `strategy = "manifest"` and `dependent_version = "upgrade"`. Toven then cuts exactly the version in each `package.json` when it is ahead of the last tag, and only re-floors dependents instead of cutting versions Changesets did not write. Under `manifest`, a package that changed without a new version fails `release tag` and `release publish` closed; add a changeset for it, or exclude it, first.
+A repository that keeps Changesets can let Changesets write the versions while Toven tags and publishes them. Set `strategy = "manifest"` and `dependent_version = "upgrade"`. Toven then cuts exactly the version in each `package.json` when it is ahead of the last tag, even if the package's sources did not change, and only re-floors dependents instead of cutting versions Changesets did not write. Under `manifest`, a package that changed without a new version fails `release tag` and `release publish` closed; add a changeset for it, or exclude it, first.
 
 ## Hosted assets and immutability
 

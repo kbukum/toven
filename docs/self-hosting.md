@@ -70,7 +70,7 @@ A protected release workflow must:
 1. Check out the exact source commit with full tag history and submodules.
 2. Install a pinned Toven binary and verify its SHA-256 checksum, keyless Sigstore signature, certificate identity, and provenance.
 3. Run plan, status, readiness, SBOM, dependency graph, and publication rehearsal commands.
-4. Cut the release version from the reviewed manifest. `[ecosystems.rust.release]` sets `strategy = "manifest"`, so the engine cuts exactly `v${Cargo.toml}` when the declared version is strictly ahead of the last release tag, and fails closed otherwise. The version/CHANGELOG pull request *is* the version decision: the tag the engine cuts equals the version each `build`-job binary was packaged from, so no separate preflight is needed to assert they match.
+4. Cut the release version from the reviewed manifest. `[ecosystems.rust.release]` sets `strategy = "manifest"`, so the engine cuts exactly `v${Cargo.toml}` when the declared version is strictly ahead of the last release tag, even for a version-only release with no crate source change, and fails closed otherwise. The release job also fails if publish leaves no tag on the release commit. The version/CHANGELOG pull request *is* the version decision: the tag the engine cuts equals the version each `build`-job binary was packaged from, so no separate preflight is needed to assert they match.
 5. Preserve machine-readable stdout and generated evidence as review artifacts.
 6. Require a protected-environment approval tied to the exact commit and preview.
 7. Recheck the branch, clean tree, selected version, and absence of conflicting immutable results.
