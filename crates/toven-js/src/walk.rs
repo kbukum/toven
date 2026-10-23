@@ -1,7 +1,8 @@
 //! The bounded walk that finds every candidate `package.json` directory.
 //!
 //! One pass over the project tree collects the directories holding a
-//! `package.json`. It never enters `node_modules`, hidden directories, the
+//! `package.json`. It never enters `node_modules`, hidden directories,
+//! test-data directories (`testdata`, `fixtures`, `__fixtures__`), the
 //! configured `exclude` directories, or directories Git ignores, and it is
 //! bounded in depth and entry count so a runaway tree fails fast instead of
 //! stalling planning. Ignore rules are read in process through the embedded
@@ -17,6 +18,11 @@ use crate::manifest::PACKAGE_JSON;
 
 /// The install directory the walk never enters.
 const NODE_MODULES: &str = "node_modules";
+
+/// Conventional test-data directory names the walk never enters. Their
+/// `package.json` files are inputs to tests, often deliberately broken, not
+/// projects to build — the same rule Go applies to `testdata`.
+const TEST_DATA_DIRS: [&str; 3] = ["testdata", "fixtures", "__fixtures__"];
 
 /// Deepest directory the walk enters, relative to the project root.
 const MAX_DEPTH: usize = 16;
@@ -85,8 +91,9 @@ pub(crate) fn package_dirs(project_root: &Path, exclude: &[String]) -> AppResult
 /// Whether the walk must not enter the directory at `relative`.
 fn skip_dir(relative: &Path, exclude: &[PathBuf]) -> bool {
     let name = relative.file_name().map(|name| name.to_string_lossy());
-    name.is_some_and(|name| name == NODE_MODULES || name.starts_with('.'))
-        || relative.components().count() > MAX_DEPTH
+    name.is_some_and(|name| {
+        name == NODE_MODULES || name.starts_with('.') || TEST_DATA_DIRS.contains(&name.as_ref())
+    }) || relative.components().count() > MAX_DEPTH
         || exclude
             .iter()
             .any(|excluded| relative.starts_with(excluded))
@@ -184,6 +191,17 @@ mod tests {
                 PathBuf::from("web"),
             ]
         );
+    }
+
+    #[test]
+    fn test_data_directories_are_pruned() {
+        let dir = tree(&[
+            "web/package.json",
+            "crates/kit/fixtures/broken/package.json",
+            "pkg/testdata/case/package.json",
+            "src/__fixtures__/app/package.json",
+        ]);
+        assert_eq!(found(dir.path(), &[]), [PathBuf::from("web")]);
     }
 
     #[test]
