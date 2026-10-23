@@ -4,48 +4,46 @@ description: "toven: Run the repository's build, test, lint, and documentation g
 user-invocable: true
 ---
 
-# Validating Toven changes with cargo/make
+# Validate
 
-Toven is one hexagonal Cargo workspace (`members = ["crates/*", "apps/*"]`, `exclude = ["rskit"]`) on top of the vendored `rskit/` submodule. The `Makefile` runs the canonical gates, but **they run against the whole workspace** (the cargo-based ones — `lint`, `test`, `doc` — with `--all-features`) — so to stay scoped to a changed crate, drive `cargo` directly with `-p <crate>`. Always scope to what changed; the full-workspace gates are for audits and CI sign-off.
+Run the smallest checks that cover the change, then the full gate when the change is cross-cutting or release-bound. The [gates section](../../../docs/engineering.md#gates) says what each gate checks; the `Makefile` is the source of truth for recipes.
 
-## Prerequisite: initialize the submodule
-
-rskit lives in the `rskit/` submodule; nothing builds without it:
+## Setup
 
 ```bash
 git submodule update --init --recursive
+make doctor   # fails if a tool the gates need is missing
 ```
 
-## Main rule: scope to what changed with `cargo -p`
+## Scoped checks while iterating
+
+The `make` gates run the whole workspace. Scope to the touched crates with `cargo -p`; crate names and layers are in [architecture](../../../docs/architecture.md#workspace-layers).
 
 ```bash
-cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # e.g. -p toven-engine
-cargo test   -p <crate> --all-features -q
-cargo test   -p <crate> --all-features <test-name-filter> -q          # a single test / module
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings
+cargo nextest run -p <crate> --all-features
+cargo nextest run -p <crate> --all-features <filter>   # one test or module
+cargo test -p <crate> --doc --all-features
+make fmt-check
+make structure   # when files, modules, or subprocess code changed
 ```
 
-Crates: `toven-model` (L0), `toven-ports` (L1), `toven-engine` / `toven-rust` / `toven-go` / `toven-js` / `toven-command` (L2), `toven-cli` (L3), and dev-only `toven-testkit`.
+## Pick the gate
 
-## Whole-tree gates (fast ones are fine per change)
+| Change | Run |
+|---|---|
+| Prose-only Markdown | `make docs-build` for book pages, plus a link check. No Rust build. |
+| One or a few crates | The scoped checks above |
+| Public API, workspace `Cargo.toml`, shared types, or several layers | `make check` |
+| Dependencies or `Cargo.lock` | `make deny`, then `make check` |
+| Coverage-sensitive behavior | `make coverage` |
+| Performance claim | `make benchmark CASE=bench/cases/<case>.sh` |
+| Release, packaging, or CI | `make check`, `make release-plan`, and `make act-ci` or the matching `act-*` target |
 
-| Intent | Command | Notes |
-|---|---|---|
-| Format (check) | `make fmt-check` | fast, whole-tree |
-| Format (write) | `make fmt` | rustfmt |
-| Structure guard | `make structure` | `lib.rs`/`mod.rs` declare-only + placement (cheap, run on structural changes) |
-| Lint | `make lint` | clippy `-D warnings`, `--workspace` |
-| Test | `make test` | nextest + doctests, `--workspace` (needs cargo-nextest) |
-| Doc | `make doc` | `-D warnings` |
-| Deny | `make deny` | cargo-deny: licenses, advisories, sources |
-| Benchmark | `make benchmark` | required evidence for any performance claim |
-| Full gate | `make check` | fmt-check + lint + test + structure + doc + deny + release build |
+List every target with `grep -E '^[a-z-]+:' Makefile`.
 
-`make fmt-check` and `make structure` are cheap enough to run on every change; prefer `cargo -p` for lint/test during iteration and reserve `make lint`/`make test`/`make check` for audits or a final sign-off.
+## Report
 
-## Before you hand work off
+Record each command you ran and its result. Name checks you skipped and why; never claim a skipped check passed. A green gate does not cover rules marked **Review** in the engineering standard; those need the [review skill](../review/SKILL.md).
 
-For a self-contained change, the minimum green bar is: `cargo clippy -p <crate> --all-features -- -D warnings`, `cargo test -p <crate> --all-features` (deterministic, no real network), `make fmt-check`, and `make structure` on any structural change. Escalate to `make check` only when the change is genuinely tree-wide or you are preparing a release. Back any performance claim with `make benchmark`.
-
-Treat a green run as **necessary but not sufficient**: it does not catch layering-by-convention, cascade gaps (a model change not flowed through planner/executor/output/docs), rskit-reuse violations, silent argv rewrites, or weak tests. Those are on the reviewer.
-
-Per repo workflow, **create the branch and make edits only** — the maintainer commits and pushes.
+Validation does not authorize Git changes. Commit, push, or create branches only when asked.

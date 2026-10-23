@@ -1,6 +1,7 @@
 # PLAN across the polyglot umbrella; the jsonl stream carries every ecosystem's
 # unit under the pinned clock.
 repo: polyglot/umbrella
+requires: [go]
 steps:
   - id: 01-plan-build
     argv: [--output, jsonl, plan, build]

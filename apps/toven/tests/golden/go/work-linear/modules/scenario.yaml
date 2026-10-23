@@ -1,6 +1,7 @@
-# `modules` discovers every member of a go.work workspace (planning only, no
-# toolchain required).
+# `modules` discovers every member of a go.work workspace. Planning only, but
+# Go discovery runs `go`, so it is gated on a `go` toolchain.
 repo: go/work-linear
+requires: [go]
 steps:
   - id: 01-modules
     argv: [modules]

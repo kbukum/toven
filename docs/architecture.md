@@ -36,7 +36,7 @@ L3   crates/toven-cli
 L4   apps/toven, apps/toven-rs, apps/toven-go, apps/toven-js
 ```
 
-Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that the streamed `release` verbs run on today (`run` and `coverage` are not yet migrated). `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the three engine crates share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
+Dependencies point downward only. `toven-semver` is a pure L0.5 toolkit — semver bump math and the release-tag codec, reusable by any layer, depending on no other Toven crate. `toven-exec`, `toven-vcs`, and `toven-runtime` are focused L1.5 utilities — `toven-exec` owns the concrete subprocess runners, `toven-vcs` owns the git mechanism behind the VCS ports, and `toven-runtime` owns the generic streaming, wave-scheduled, bounded-parallel unit-operation engine (shared GATHER → per-unit STREAM) that the streamed `release` verbs run on today (`run` and `coverage` are not yet migrated). `toven-version` is the L2 version-decision capability whose pure `plan_bumps` is the single path every bump flows through; the engine crates `toven-release` and `toven-engine` share layer 2 above `toven-core`, with `toven-release` composing `toven-version` for its bump phase.
 
 This diagram shows the dependency direction across the workspace layers.
 
@@ -99,12 +99,12 @@ Only the thin `apps/*` binaries wire the ecosystem adapters (`toven-rust`, `tove
 | `toven-rust` | Cargo discovery and Rust task/release behavior |
 | `toven-go` | Go discovery and Go task/release behavior |
 | `toven-js` | Offline JavaScript/TypeScript discovery across npm, pnpm, Yarn, and Bun, and npm-registry release |
-| `toven-command` | Out-of-process ecosystem driver integration |
+| `toven-command` | The generic-tool adapter: user-declared modules and task argv, with nothing inferred |
 | `toven-cli` | Command grammar and output projection |
 | `toven-testkit` | Shared fixtures, doubles, and smoke support |
 | `apps/*` | Thin binary wiring |
 
-`lib.rs` and `mod.rs` files declare and re-export modules only. `make structure` enforces this rule.
+The placement rules (downward dependencies, port placement, declare-only `lib.rs`/`mod.rs`) live in [placement and layering](engineering.md#placement-and-layering).
 
 ## Plan and apply
 
@@ -271,9 +271,9 @@ On Unix terminals, live units may use PTYs to preserve color and progress render
 
 ## Ports and adapters
 
-A port trait lives in `toven-ports`. Its production adapter lives in the consuming engine or ecosystem crate. Each port has one shared test double in `toven-testkit`.
+Port traits sit in `toven-ports`. Production adapters sit in the crate that consumes them: an engine crate, an ecosystem crate, or a mechanism crate such as `toven-exec` or `toven-vcs`. Shared test doubles sit in `toven-testkit`. The binding rules are in [placement and layering](engineering.md#placement-and-layering).
 
-Shared concerns such as errors, filesystem, Git, process execution, validation, and logging reuse the vendored rskit implementation. See [concern ownership](concern-owners.md).
+Shared concerns such as errors, filesystem, Git, process execution, validation, and logging reuse rskit. See [concern ownership](concern-owners.md).
 
 ## Release architecture
 
@@ -337,7 +337,7 @@ A phase's *implementation* is a swappable seam described by the system-wide `Bac
 
 ### Phase seam decomposition
 
-The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, composed by the `ReleaseAdapter` marker trait (a blanket impl over all six). `ConfiguredAdapter::release_target` hands the engine one native trait object it resolves per phase, so each phase is independently backed `Native` or `Delegated`. The per-phase contracts:
+The ecosystem sliver is a set of **per-phase contracts** in `toven-ports`, composed by the `ReleaseAdapter` marker trait (a blanket impl over the per-phase traits). `ConfiguredAdapter::release_target` hands the engine one native trait object it resolves per phase, so each phase is independently backed `Native` or `Delegated`. The per-phase contracts:
 
 | Contract (method) | Phase | Role |
 | --- | --- | --- |

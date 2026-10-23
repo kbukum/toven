@@ -11,11 +11,10 @@ use crate::config::CommandConfig;
 use crate::discovery;
 use crate::tasks;
 
-/// The toolchain program/label for an empty (module-less) ecosystem. This is a
-/// stable placeholder, never executed: [`CommandProvider::configure`] rejects a
-/// config that declares modules without tasks or a `[toolchain]`, and the
-/// engine only probes a workspace that owns an active module — so the
-/// degenerate branch is unreachable for any probed workspace.
+/// The toolchain label for an ecosystem with no `PATH` tool to probe (no
+/// `[toolchain]`, and every task program is a path or there are no tasks). It
+/// is a stable placeholder, never executed: per-task probing returns no probe
+/// in that case.
 const DEFAULT_TOOL: &str = "command";
 
 /// The configured command adapter: a baked [`CommandConfig`].
@@ -35,6 +34,29 @@ impl CommandAdapter {
     pub const fn new(config: CommandConfig) -> Self {
         Self { config }
     }
+
+    /// The probe for the first declared task program looked up on `PATH`.
+    fn first_path_tool_probe(&self) -> Option<ToolchainProbe> {
+        self.config
+            .common
+            .tasks
+            .values()
+            .filter_map(|entry| entry.argv.first())
+            .find_map(|program| path_tool_probe(program))
+    }
+}
+
+/// The `--version` probe for a program looked up on `PATH`, or `None` for a
+/// program given as a path.
+///
+/// A path (`scripts/check.sh`, `./tool`, `/opt/bin/tool`) names a specific
+/// file, usually a repository script. Toven cannot know whether it accepts
+/// `--version`, and running it may have side effects, so it is never executed
+/// to probe. A repo script's content is already covered by the task's inputs,
+/// and a missing one fails with a typed error when the task spawns it.
+fn path_tool_probe(program: &str) -> Option<ToolchainProbe> {
+    let is_path = program.contains('/') || program.contains(std::path::MAIN_SEPARATOR);
+    (!is_path).then(|| ToolchainProbe::new(program, program, vec!["--version".to_string()]))
 }
 
 impl ConfiguredAdapter for CommandAdapter {
@@ -45,11 +67,11 @@ impl ConfiguredAdapter for CommandAdapter {
     /// Resolve the toolchain probe with no inference beyond what's declared.
     ///
     /// Precedence: an explicit `[toolchain]` block wins; otherwise the first
-    /// declared task's program is probed with `--version`. The final `command
-    /// --version` placeholder is only reachable for an empty, module-less
-    /// ecosystem — which the engine never probes — because
-    /// [`CommandProvider::configure`](toven_ports::Provider::configure) rejects
-    /// modules declared without any task or `[toolchain]`.
+    /// declared task program looked up on `PATH` is probed with `--version`. A
+    /// program given as a path is never run to probe. The final `command
+    /// --version` placeholder is
+    /// a label only: [`toolchain_probes_for`](Self::toolchain_probes_for) never
+    /// hands it to the prober.
     fn toolchain_probe(&self) -> ToolchainProbe {
         if let Some(toolchain) = &self.config.toolchain {
             let args = if toolchain.args.is_empty() {
@@ -64,21 +86,9 @@ impl ConfiguredAdapter for CommandAdapter {
             return ToolchainProbe::new(label, toolchain.program.clone(), args);
         }
 
-        if let Some(program) = self
-            .config
-            .common
-            .tasks
-            .values()
-            .find_map(|entry| entry.argv.first())
-        {
-            return ToolchainProbe::new(
-                program.clone(),
-                program.clone(),
-                vec!["--version".to_string()],
-            );
-        }
-
-        ToolchainProbe::new(DEFAULT_TOOL, DEFAULT_TOOL, vec!["--version".to_string()])
+        self.first_path_tool_probe().unwrap_or_else(|| {
+            ToolchainProbe::new(DEFAULT_TOOL, DEFAULT_TOOL, vec!["--version".to_string()])
+        })
     }
 
     /// Scope the probe to the tool the addressed task actually runs.
@@ -89,8 +99,9 @@ impl ConfiguredAdapter for CommandAdapter {
     /// `argv[0]`, checked with `--version` — lets each gate surface a typed
     /// missing-tool error for *its* tool without forcing every other command
     /// tool to be installed for an unrelated run. An explicit `[toolchain]`
-    /// still wins (it declares one tool for the whole ecosystem); an unknown or
-    /// program-less task falls back to the ecosystem default probe.
+    /// still wins (it declares one tool for the whole ecosystem). A task whose
+    /// program is a path (a repo script) has no probe. An unknown or
+    /// program-less task falls back to the first `PATH` tool, or to no probe.
     fn toolchain_probes_for(
         &self,
         _toolchain: &ToolchainTag,
@@ -99,20 +110,17 @@ impl ConfiguredAdapter for CommandAdapter {
         if self.config.toolchain.is_some() {
             return Ok(vec![self.toolchain_probe()]);
         }
-        if let Some(program) = self
+        let probe = self
             .config
             .common
             .tasks
             .get(intent.name())
             .and_then(|entry| entry.argv.first())
-        {
-            return Ok(vec![ToolchainProbe::new(
-                program.clone(),
-                program.clone(),
-                vec!["--version".to_string()],
-            )]);
-        }
-        Ok(vec![self.toolchain_probe()])
+            .map_or_else(
+                || self.first_path_tool_probe(),
+                |program| path_tool_probe(program),
+            );
+        Ok(probe.into_iter().collect())
     }
 
     fn run_strategy_default(&self, kind: TaskKind) -> RunStrategy {
@@ -280,6 +288,77 @@ mod tests {
             .expect("probes");
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0].program, "ast-grep");
+    }
+
+    #[test]
+    fn a_task_whose_program_is_a_path_is_never_probed() {
+        // A repo script may not accept `--version` and may have side effects
+        // (regenerating a file), so a path-like `argv[0]` yields no probe.
+        let mut common = CommonEcosystemConfig::default();
+        common.tasks.insert(
+            "module-index".to_string(),
+            task_entry(&["scripts/generate-module-index.sh", "--check"]),
+        );
+        common
+            .tasks
+            .insert("local".to_string(), task_entry(&["./tool"]));
+        common
+            .tasks
+            .insert("absolute".to_string(), task_entry(&["/opt/bin/tool"]));
+        let adapter = CommandAdapter::new(CommandConfig {
+            common,
+            ..CommandConfig::default()
+        });
+
+        for task in ["module-index", "local", "absolute"] {
+            let probes = adapter
+                .toolchain_probes_for(&tag(), &TaskIntent::resolve(task))
+                .expect("probes");
+            assert!(probes.is_empty(), "{task} must not be probed: {probes:?}");
+        }
+    }
+
+    #[test]
+    fn the_default_probe_skips_path_programs() {
+        let mut common = CommonEcosystemConfig::default();
+        common
+            .tasks
+            .insert("a-script".to_string(), task_entry(&["scripts/check.sh"]));
+        common
+            .tasks
+            .insert("b-docs".to_string(), task_entry(&["mdbook", "build"]));
+        let adapter = CommandAdapter::new(CommandConfig {
+            common,
+            ..CommandConfig::default()
+        });
+
+        assert_eq!(adapter.toolchain_probe().program, "mdbook");
+        let fallback = adapter
+            .toolchain_probes_for(&tag(), &TaskIntent::resolve("deploy"))
+            .expect("probes");
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].program, "mdbook");
+    }
+
+    #[test]
+    fn an_unknown_task_has_no_probe_when_every_program_is_a_path() {
+        let mut common = CommonEcosystemConfig::default();
+        common
+            .tasks
+            .insert("check".to_string(), task_entry(&["scripts/check.sh"]));
+        let adapter = CommandAdapter::new(CommandConfig {
+            common,
+            ..CommandConfig::default()
+        });
+
+        assert_eq!(adapter.toolchain_probe().program, "command");
+        let probes = adapter
+            .toolchain_probes_for(&tag(), &TaskIntent::resolve("deploy"))
+            .expect("probes");
+        assert!(
+            probes.is_empty(),
+            "the placeholder is never probed: {probes:?}"
+        );
     }
 
     #[test]

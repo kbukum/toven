@@ -40,7 +40,7 @@ gh api graphql -f query='
 
 For every comment, decide before touching code:
 
-- **Valid?** Judge it against Toven's baseline ([`docs/engineering.md`](../../../docs/engineering.md)), not the reviewer's authority. If a suggestion conflicts with the baseline or is simply wrong, **do not apply it** — note why (you may leave the thread unresolved for the maintainer, but never argue under their name).
+- **Valid?** Judge it against the [engineering standard](../../../docs/engineering.md), not the reviewer's authority. If a suggestion conflicts with the baseline or is simply wrong, **do not apply it** — note why (you may leave the thread unresolved for the maintainer, but never argue under their name).
 - **What is the real pattern?** Look past the wording to the class of issue:
   - a typo/grammar note → *spelling & wording across all changed prose and `///` docs*
   - a library that prints in one spot → *every library crate touched (only the CLI layer prints)*
@@ -64,21 +64,15 @@ git diff origin/main...HEAD --name-only     # the files in scope
 
 ## 4. Validate — scoped to what changed
 
-Run the smallest gates that cover the touched crates (see the `validate` skill):
-
-```bash
-cargo test -p <crate> --all-features -q
-cargo clippy -p <crate> --all-targets --all-features -- -D warnings
-make structure
-```
-
-Docs/prose-only sweeps need no build/test gates. Never resolve a thread whose fix hasn't been validated.
+Run the smallest gates that cover the touched crates with the [validate skill](../validate/SKILL.md). Prose-only sweeps need doc checks only. Never resolve a thread whose fix hasn't been validated.
 
 ## 5. Commit, push, and resolve
 
 This phase requires explicit authorization for Git mutations. A request to fix reviews alone does not authorize commit/amend/push. Resolve a thread only after the remote contains its validated fix; never post replies on the maintainer's behalf.
 
 Commit the pattern fixes using the [`commit`](../commit/SKILL.md) skill — a single compact, developer-friendly Conventional-Commit message that states the change as it stands, **no `Co-authored-by` trailer** and no review/plan/batch narration. Group commits by pattern when it aids the reader, or a single tidy commit when the sweep is small.
+
+Push only with explicit authorization:
 
 ```bash
 git push
@@ -96,4 +90,4 @@ Leave unresolved only the threads you deliberately rejected (baseline conflict) 
 
 ## Baseline
 
-Every fix must still satisfy Toven's engineering baseline ([`docs/engineering.md`](../../../docs/engineering.md)) — a review-driven change is held to the same bar as any other. If acting on a comment would push code below the baseline, reject the comment instead.
+Every fix must still meet the [Definition of Done](../../../docs/engineering.md#definition-of-done). If acting on a comment would push code below the baseline, reject the comment instead.

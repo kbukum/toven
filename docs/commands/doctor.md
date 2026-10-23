@@ -27,7 +27,7 @@ toven doctor --profile app
 
 ## What it reports
 
-`doctor` walks the resolved task graph, collects distinct tools, probes each once, and reports presence and version. Shared tools are audited once even when several tasks use them.
+`doctor` walks the resolved task graph, collects distinct tools, probes each once, and reports presence and version. Shared tools are audited once even when several tasks use them. A command task whose program is a path (a repository script such as `scripts/check.sh`) is not audited, because running it to probe could have side effects.
 
 ```text
   tool mdbook (mdbook): present (mdbook <version>)

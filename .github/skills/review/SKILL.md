@@ -6,40 +6,57 @@ user-invocable: true
 
 # Review
 
-Apply the [baseline](../../copilot-instructions.md). Review code and evidence, not the author's rationale; plans define scope, not exceptions to requirements.
-
-## Scope and execution
-
-Review directly by default. Launch an independent reviewer only when the user requests it; use one bounded reviewer unless distinct additional scopes are explicitly requested. Pass the scope, constraints, and relevant files, not the authoring transcript. Reevaluate returned findings against source before acting.
-
-For changes, include staged/unstaged/untracked work when requested, plus close callers, callees, and affected contracts. Report pre-existing defects in that impact area; do not silently widen into an unrelated audit. For project review, state the package/domain boundary.
-
-Reviews are read-only unless fixes are authorized. For each real defect choose **Redesign / Align / Enhance / Drop** with a one-line reason. Preserve user staging and unrelated work; do not commit, amend, push, resolve remote threads, or post replies implicitly.
-
-## Load checks by trigger
-
-Check placement and canonical reuse first for code changes. A blocker there stops acceptance; report any unperformed checks rather than claiming a complete review. Apply every relevant lens below, in order; load only its file, not the entire reference directory. For prose-only work, use documentation/claim checks rather than runtime test suites.
-
-| Trigger | Checklist |
-|---|---|
-| Code placement, imports, exports, or package wiring | [Pass 00 — Structure and placement](references/00-structure-placement.md) |
-| Shared behavior or a proposed helper/adapter | [Pass 01 — rskit reuse](references/01-rskit-reuse.md) |
-| Runtime APIs, errors, concurrency, or composition | [Pass 02 — Following principles](references/02-principles.md) |
-| Trust boundaries, auth, crypto, privacy, or external input | [Pass 03 — Security & privacy](references/03-security-privacy.md) |
-| Behavior, readability, maintainability, or dead code | [Pass 04 — Quality: simplicity, maintainability, flexibility, up-to-date code](references/04-quality.md) |
-| Behavior changes, tests, fixtures, or coverage | [Pass 05 — TDD and tests](references/05-tests-tdd.md) |
-| Documentation, dependencies, CI, or release | [Pass 06 — Docs and supply chain](references/06-docs-supply-chain.md) |
-| Comments and public API documentation | [Pass 07 — Comments and rustdoc](references/07-comments-rustdoc.md) |
-| CLI behavior or output | [Pass 08 — CLI user experience](references/08-cli-ux.md) |
+Judge the code and evidence, not the author's rationale. A plan or PR description sets scope; it never excuses a rule. The rules live in the [engineering standard](../../../docs/engineering.md); lenses below say how to check them.
 
 ## Modes
 
-- [Changes](references/review-changes.md): diff and affected contracts.
-- [Project](references/review-project.md): bounded tree audit.
-- [Review and fix](references/review-details.md): select only when fixes are requested; confirm the proposed fix scope before editing.
+| Mode | Use when | Procedure |
+|---|---|---|
+| Changes | Reviewing a diff, branch, commit range, or the worktree | [mode-changes.md](references/mode-changes.md) |
+| Project | Auditing a crate or the whole workspace, in priority order | [mode-project.md](references/mode-project.md) |
+| Review and fix | The user asked for fixes, not only findings | [mode-fix.md](references/mode-fix.md) |
 
-## Evidence and output
+Reviews are read-only unless fixes are authorized. Review directly; start an independent reviewer only when the user asks. Preserve the worktree and index. Never commit, amend, push, resolve threads, or post replies as part of a review.
 
-Use [validate](../validate/SKILL.md) for scoped gates; reuse fresh evidence and retain required full acceptance gates. Green tooling is necessary, not proof of lifecycle/security correctness.
+## Lenses
 
-Report `severity | file:line | defect and impact | evidence | proposed action`. **Blocker** means broken behavior/contract or a hard-rule violation; **should-fix** means a substantiated maintainability defect; **nit** is optional style, never a gate. List incomplete/skipped checks and uncertainty. Do not invent findings or treat grep hits as proof.
+Pick lenses by trigger and run them in this order. Load only the files you need. Placement and reuse come first: a blocker there stops acceptance.
+
+| Lens | Trigger | File |
+|---|---|---|
+| Placement and layering | New code, imports, exports, Cargo wiring | [placement.md](references/placement.md) |
+| rskit reuse | A new helper, adapter, error type, or shared concern | [rskit-reuse.md](references/rskit-reuse.md) |
+| Security | Untrusted input, paths, subprocesses, secrets, crypto | [security.md](references/security.md) |
+| Runtime correctness | Errors, async, concurrency, lifecycle, model cascade | [runtime-correctness.md](references/runtime-correctness.md) |
+| Public API and stability | `pub` items, error types, JSONL, exit codes, config schema | [public-api.md](references/public-api.md) |
+| Tests and proof | Any behavior change, fixture, double, or coverage | [tests.md](references/tests.md) |
+| CLI experience | Flags, help, messages, output streams, `init` | [cli-ux.md](references/cli-ux.md) |
+| Code quality | Shims, dead code, outdated idioms, readability | [quality.md](references/quality.md) |
+| Comments and rustdoc | Changed or stale comments and API docs | [comments-rustdoc.md](references/comments-rustdoc.md) |
+| Docs and supply chain | Markdown, dependencies, CI workflows, release | [docs-supply-chain.md](references/docs-supply-chain.md) |
+
+Prose-only changes need only the docs lens. Name every lens you skipped and why.
+
+## Severity
+
+| Severity | Meaning | Gate |
+|---|---|---|
+| **blocker** | Wrong behavior, a broken contract, a security hole, or a hard-rule violation | Must be fixed before acceptance |
+| **should-fix** | A real, evidenced maintainability or consistency defect | Fix in this change unless the user defers it |
+| **nit** | Optional style or wording | Never blocks |
+
+For every real defect choose **Redesign / Align / Enhance / Drop** with a one-line reason. Toven is pre-stable, so prefer a root-cause redesign over a shim.
+
+## Findings
+
+One line per finding:
+
+```text
+severity | file:line | problem and impact | rule link | action
+```
+
+The rule link points to an [engineering](../../../docs/engineering.md) anchor. Group by crate in project mode. Detection commands find candidates, not proof: read each hit before reporting it.
+
+## Evidence
+
+Use the [validate skill](../validate/SKILL.md) for gates. A green gate is necessary, not sufficient: rules marked **Review** in the engineering standard are checked only by you. List checks you did not run and anything you are unsure of; never claim a skipped check passed.

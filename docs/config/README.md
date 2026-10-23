@@ -263,7 +263,7 @@ label = "npm"
 | `modules[].manifest` | string | None | Informational manifest path |
 | `modules[].depends_on` | string list | `[]` | Other declared command modules this module depends on |
 | `modules[].capabilities` | string list | `[]` | Capabilities this module provides, matched by a task's `requires` |
-| `toolchain.program` | string | Derived from the first task | Program used for toolchain probing |
+| `toolchain.program` | string | Each task's own program | Program used for toolchain probing. Without it, each task probes its `argv[0]` with `--version`, except a path such as `scripts/check.sh`, which is never run to probe |
 | `toolchain.args` | string list | `[]` | Probe arguments |
 | `toolchain.label` | string | `program` | Human-readable diagnostic label |
 
@@ -339,6 +339,8 @@ By default a task runs on every module of its ecosystem. Two keys narrow that:
 - `requires` lists capabilities a module must provide. Discovery reports what each module provides: a Rust package with a binary target provides `bin`, and command modules list theirs in `capabilities`.
 
 A module the task does not apply to is skipped, and the plan, `explain`, and JSONL output say which module was skipped and why. Modules reached through `--dependents`, `--dependencies`, a glob, or a whole workspace are skipped the same way. Naming such a module exactly with `--module` is an error instead when the task runs alone. In a task list or set it is skipped too, and the run fails only if no task applies to any selected module.
+
+Modules of an ecosystem that does not define the task are left out. A changed-scope run whose changes touch only such ecosystems plans nothing and succeeds; a task no ecosystem defines is an error.
 
 ```toml
 [ecosystems.rust.tasks.run]

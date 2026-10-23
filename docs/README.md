@@ -1,6 +1,6 @@
 # Toven documentation
 
-Toven plans and runs development, CI, coverage, and release work across multi-module repositories. It discovers Rust workspaces and Go modules, builds their dependency graph, selects affected work, and executes the exact command arguments declared by the repository.
+Toven plans and runs development, CI, coverage, and release work across multi-module repositories. It discovers Rust, Go, and JavaScript/TypeScript workspaces, builds their dependency graph, selects affected work, and executes the exact command arguments declared by the repository.
 
 ## Choose a path
 
@@ -8,7 +8,7 @@ Toven plans and runs development, CI, coverage, and release work across multi-mo
 |---|---|
 | Install Toven and run a first task | [Getting started](getting-started.md) |
 | Understand the product before adopting it | [Core concepts](product.md) |
-| Configure a Rust or Go repository | [Configuration guide](config/README.md) |
+| Configure a repository | [Configuration guide](config/README.md) |
 | Find a command or flag | [Command reference](commands/README.md) |
 | Plan and publish releases | [Release workflow](commands/release.md) |
 | Integrate Toven into CI | [Self-hosting and CI](self-hosting.md) |

@@ -12,7 +12,7 @@ Create a PR **only when explicitly asked** — never as a side effect of finishi
 
 ## 1. Preconditions
 
-- The branch is committed and **pushed** to `origin` (the maintainer commits and pushes, per repo workflow). Confirm before opening:
+- The branch is committed and **pushed** to `origin`. Commit and push only with the user's authorization. Confirm before opening:
 
 ```bash
 git rev-parse --abbrev-ref HEAD
@@ -35,23 +35,24 @@ Answer, in your head: what capability/fix/refactor is this, which crates and lay
 
 ## 3. Write the description — high level, organized, simplified
 
-Fill every section of [`../../PULL_REQUEST_TEMPLATE.md`](../../PULL_REQUEST_TEMPLATE.md). The guiding rule: **a reviewer should grasp the change from the description alone**, without reconstructing it from the diff. Toven's template asks for reviewer-focused intent, not a file list.
+Fill every section of the [pull request template](../../PULL_REQUEST_TEMPLATE.md). A reviewer should grasp the change from the description alone, without a file list.
 
-- **Title** — Conventional Commit style, naming the change: `feat(engine): plan-result cache`, `refactor(ports): move ToolchainProber double to testkit`. No plan/batch/step numbers.
-- **Description** — a few sentences of *what changed and why it's shaped this way*, at the level of capabilities and decisions, not code lines.
-- **Motivation** — the problem it solves. Link issues as `Fixes #123`; reference **other repos as full URLs** (e.g. `https://github.com/kbukum/rskit/issues/45`), never a bare `#45`.
-- **Changes / crates affected** — a short, grouped bullet list of the *key* changes by concern, not one bullet per file and not a commit log.
-- **Testing** — check only the gates you actually ran; scope to affected crates. These map to the `validate` skill: `cargo test -p <crate>`, `cargo clippy -p <crate> -- -D warnings`, `make structure`. Paste real evidence if useful; don't fabricate output.
-- **Checklist** — tick only what is genuinely true. An unchecked box is honest signal; a falsely checked one wastes reviewer trust. Do not narrate prior bugs or how they were fixed.
+- **Title:** Conventional Commit style naming the change, such as `feat(engine): plan-result cache`. No plan, batch, or step numbers. CI checks the title.
+- **Summary:** a few bullets on what changed and why, at the level of capabilities and decisions. Link issues as `Fixes #123`; link other repositories by full URL.
+- **Review context:** the problem, key design choices, and anything left for a follow-up.
+- **Type of change:** tick every option that applies, including **Breaking change** with its `CHANGELOG.md` entry.
+- **Validation:** tick only the checks you ran, using the [validate skill](../validate/SKILL.md). Never fabricate output.
+- **Risk and rollout:** breaking changes, migration notes, or why there is no user-visible risk.
+- **Checklist:** it mirrors the [Definition of Done](../../../docs/engineering.md#definition-of-done). Tick only what is true; an unticked box is honest signal.
 
-Keep prose tight: no process narration, no "previously we…", no restating the diff.
+Keep prose tight: no process narration, no "previously we…", no code snippets.
 
 ## 4. Create it with `gh`
 
-Write the body to a file so formatting survives, then open against `main`:
+Write the body to a file so formatting survives, then open a draft against `main`. The maintainer marks it ready for review:
 
 ```bash
-gh pr create --base main --title "<conventional-title>" --body-file <path>
+gh pr create --draft --base main --title "<conventional-title>" --body-file <path>
 ```
 
 - Do **not** add reviewers or request Copilot review unless explicitly asked.
@@ -59,4 +60,4 @@ gh pr create --base main --title "<conventional-title>" --body-file <path>
 
 ## Baseline
 
-The PR asserts the change meets Toven's engineering baseline ([`docs/engineering.md`](../../../docs/engineering.md)); if it doesn't yet, run the `review` skill first and fix findings rather than opening a PR that fails its own checklist.
+The PR claims the change meets the [Definition of Done](../../../docs/engineering.md#definition-of-done). If it does not yet, run the [review skill](../review/SKILL.md) and fix findings first.

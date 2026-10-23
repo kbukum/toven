@@ -15,7 +15,7 @@ git status --short          # what's staged vs. unstaged
 git diff --cached           # the exact change going in
 ```
 
-- Stage deliberately (`git add <paths>`); don't sweep in unrelated edits. If the working tree mixes concerns, make **separate commits**, one coherent change each.
+- Respect what the user staged. Stage more (`git add <paths>`) only when asked, and never sweep in unrelated edits. If the working tree mixes concerns, make **separate commits**, one coherent change each.
 - Don't commit generated junk, secrets, or `tmp/` scratch. Do not accidentally stage a bump of the `rskit/` submodule pointer unless that is the change.
 
 ## 2. Write the message
@@ -51,4 +51,4 @@ Use a message file for a subject + body:
 git commit -F <path-to-message>
 ```
 
-Do **not** amend or rewrite already-pushed history, and do **not** run destructive git commands on uncommitted work. Push only when asked (or when the task — e.g. resolving PR reviews — requires the commit to be on the branch).
+Do **not** amend or rewrite already-pushed history, and do **not** run destructive git commands on uncommitted work. Committing needs the user's request; pushing needs its own explicit authorization.

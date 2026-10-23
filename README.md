@@ -6,7 +6,7 @@ Plan and run development and CI tasks across multi-module repositories without r
 
 Toven is an argv-first task planner. It discovers workspace modules, orders work by dependency graph, selects affected work, caches successful results, and shows the exact command batches it will run before anything executes.
 
-**Status:** Alpha. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases). You can also build from source. For the full product overview, see [core concepts](docs/product.md).
+**Status:** Alpha. Signed binaries are published on the [Releases page](https://github.com/kbukum/toven/releases). You can also build from source. Breaking changes can land in any `0.x` release and are recorded in the [changelog](CHANGELOG.md); the [stability policy](docs/engineering.md#public-api-and-stability) says which contracts tools can rely on. For the full product overview, see [core concepts](docs/product.md).
 
 ## Quick start
 
@@ -82,10 +82,11 @@ Run `make docs-serve` to open the same documentation as a searchable local mdBoo
 
 ```bash
 git submodule update --init --recursive
-make check      # canonical gate: fmt-check, lint, test, structure, doc, deny, release build
+make doctor     # check the tools the gates need
+make check      # canonical full gate
 ```
 
-The workspace is a hexagonal `crates/*` + `apps/*` stack: pure model and semver crates at the bottom, ports and focused mechanisms above them, planning and release engines in the middle, ecosystem adapters beside them, and thin app binaries on top. See [engineering](docs/engineering.md) for the full layout, standards, and validation commands.
+The workspace is a hexagonal `crates/*` + `apps/*` stack. See [architecture](docs/architecture.md) for where code goes, the [engineering standard](docs/engineering.md) for the rules every change follows, and [CONTRIBUTING](CONTRIBUTING.md) for setup and pull requests.
 
 ## Community
 

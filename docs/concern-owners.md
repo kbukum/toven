@@ -44,6 +44,7 @@ When a shared capability is missing, improve rskit generically. Do not make rski
 | Rust ecosystem behavior | `toven-rust` |
 | Go ecosystem behavior | `toven-go` |
 | JavaScript/TypeScript ecosystem behavior | `toven-js` |
+| Generic-tool adapter for user-declared modules and task argv | `toven-command` |
 | CLI parsing and user-facing output; installs the rskit `ShutdownController` and subscribes the runner's `ProcessSupervisor` as the shutdown backstop | `toven-cli` |
 | Shared fixtures and port doubles | `toven-testkit` |
 

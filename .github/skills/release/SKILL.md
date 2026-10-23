@@ -10,7 +10,7 @@ Toven is a **single Cargo workspace of binaries and internal crates — every cr
 
 The release is **not** driven by pushing a `v*` tag. `toven release publish` creates the tag from inside the gated workflow; a tag-triggered run would race its own immutable-tag preflight, so `release.yml` is `workflow_dispatch`-only (see [`docs/self-hosting.md`](../../../docs/self-hosting.md) "Release approval pipeline"). The `Release Readiness` workflow ([`.github/workflows/release-readiness.yml`](../../workflows/release-readiness.yml)) is a **non-mutating** preview only, on PRs and `main`.
 
-The engineering baseline still applies ([`docs/engineering.md`](../../../docs/engineering.md)): supply chain pinned and clean, `Cargo.lock` committed, artifacts signed with SBOM + provenance.
+The [supply chain and release rules](../../../docs/engineering.md#supply-chain-and-release) still apply: supply chain pinned and clean, `Cargo.lock` committed, artifacts signed with SBOM and provenance.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ The engineering baseline still applies ([`docs/engineering.md`](../../../docs/en
 A release is the one time to run the **complete** gates rather than the affected set:
 
 ```bash
-make check              # fmt-check + lint + test + structure + doc + deny + release-dry-run
+make check              # the canonical full gate
 make release-dry-run    # cargo metadata sanity + full --release --all-features build
 make deny               # cargo-deny: advisories, bans, licenses, sources
 ```
@@ -43,7 +43,7 @@ cargo build --locked --release -p toven --target "$host"
 cargo run --locked -p toven -- release package --target "$host"   # writes dist/toven-<host>.<ext>
 ```
 
-Also run the `review` project audit directly (use an independent agent only when requested) before a release. Treat green gates as necessary but not sufficient.
+Also run the [review skill](../review/SKILL.md) in project mode before a release. Treat green gates as necessary but not sufficient.
 
 ## Step 2 — Decide the version
 
@@ -52,7 +52,7 @@ git tag --sort=-v:refname | head -1
 git log --oneline $(git describe --tags --abbrev=0 2>/dev/null)..HEAD
 ```
 
-Toven follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While pre-1.0 (`0.x`): a breaking change in the `[Unreleased]` CHANGELOG section bumps **MINOR**; otherwise **PATCH**. Pre-stable, backward compatibility is not yet a goal — the baseline prefers root-cause redesigns.
+Pick the bump from the [stability policy](../../../docs/engineering.md#public-api-and-stability): while `0.x`, a breaking change under `[Unreleased]` bumps **MINOR**; otherwise **PATCH**.
 
 ## Step 3 — Update the CHANGELOG
 
@@ -98,7 +98,7 @@ The workflow builds every per-target archive (`vendored-openssl`; `aarch64-unkno
 ## Safety rules
 
 - **Never** run destructive git commands (`reset --hard`, `checkout -- .`, `clean`) on uncommitted work without explicit permission.
-- Per repo workflow, the agent prepares the branch/CHANGELOG/version edits; **the maintainer merges the PR and dispatches/approves the Release workflow**. The tag is created by `toven release publish` — never tag or push a `v*` tag by hand. Open a PR only when explicitly requested, following the PR template.
+- The agent prepares the CHANGELOG and version edits. Branches, commits, and pushes happen only when the maintainer authorizes them; **the maintainer merges the PR and dispatches/approves the Release workflow**. The tag is created by `toven release publish` — never tag or push a `v*` tag by hand. Open a PR only when explicitly requested, following the PR template.
 - Release tags, hosted Releases, and hosted assets are immutable create-or-verify. A partially completed release is forward-fixed with a new version and a fresh approval — never by moving a tag, editing notes, or clobbering an asset.
 - Do not bump wire/protocol version constants for a release while pre-stable unless the wire shape actually changed — the umbrella and drivers build from one tree.
 - Reference other-repo items with full URLs, never bare `#123`.
