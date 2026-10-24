@@ -107,8 +107,9 @@ fn config_tasks(
 /// The candidate set is the config task names (canonical, so `format` not
 /// `fmt`); a nearest match within the default edit-distance is offered as
 /// advisory data in the message. The error carries the wanted name as the
-/// `missing_task` detail so callers can recognize it without parsing text. It
-/// stays a typed [`AppError`] — the CLI's renderer is what prints it.
+/// `missing_task` detail, and any nearest match as `suggested_task`, so callers
+/// can recognize both without parsing text. It stays a typed [`AppError`] — the
+/// CLI's renderer is what prints it.
 pub(in crate::plan) fn unknown_task_error<'a>(
     ecosystems: &[&str],
     intent: &TaskIntent,
@@ -120,13 +121,17 @@ pub(in crate::plan) fn unknown_task_error<'a>(
     // reads as one sentence (`error[INVALID_INPUT]: ecosystem 'rust' has no …`)
     // instead of stuttering an `invalid tasks:` field prefix in front of a message
     // that is already about tasks.
+    let nearest = match ecosystems {
+        [_] if names.is_empty() => None,
+        _ => rskit_util::strings::nearest(wanted, names.iter().copied()),
+    };
     let message = match ecosystems {
         [ecosystem] if names.is_empty() => format!(
             "ecosystem '{ecosystem}' defines no tasks. Run 'toven init' to author its task table in toven.toml."
         ),
         _ => {
-            let suggestion = rskit_util::strings::nearest(wanted, names.iter().copied())
-                .map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
+            let suggestion =
+                nearest.map_or_else(String::new, |name| format!(" Did you mean '{name}'?"));
             let subject = match ecosystems {
                 [ecosystem] => format!("ecosystem '{ecosystem}' has"),
                 many => format!(
@@ -142,8 +147,12 @@ pub(in crate::plan) fn unknown_task_error<'a>(
             )
         }
     };
-    AppError::new(rskit_errors::ErrorCode::InvalidInput, message)
-        .with_detail("missing_task", wanted)
+    let error = AppError::new(rskit_errors::ErrorCode::InvalidInput, message)
+        .with_detail("missing_task", wanted);
+    match nearest {
+        Some(name) => error.with_detail("suggested_task", name),
+        None => error,
+    }
 }
 
 /// The user-addressable canonical name of a resolved task — its identity.

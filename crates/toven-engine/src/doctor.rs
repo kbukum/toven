@@ -14,14 +14,20 @@
 //!
 //! Tool identity is never invented here: each probe's program and label come
 //! from the adapter (a tooling adapter's ecosystem-wide probe, or the command
-//! adapter's per-task `argv[0]`). The engine only aggregates and classifies, so
-//! core stays language- and tool-agnostic.
+//! adapter's per-task `argv[0]`). Every other bare task program (`gofmt`,
+//! `golangci-lint`) is located on `PATH` through the injected
+//! [`DriverLocator`] without being run, since an arbitrary tool has no common
+//! version flag. A path-like `argv[0]` is a repository script, never probed.
+//! The engine only aggregates and classifies, so core stays language- and
+//! tool-agnostic.
 
 use std::collections::BTreeSet;
 
 use rskit_errors::{AppResult, ErrorCode};
 use toven_model::{AbsPath, ToolStatus};
-use toven_ports::{EcosystemCheck, Provider, TaskIntent, ToolchainProbe, ToolchainProber};
+use toven_ports::{
+    DriverLocator, EcosystemCheck, Provider, TaskIntent, ToolchainProbe, ToolchainProber,
+};
 
 use toven_core::config::Document;
 use toven_core::plan::configure::configure;
@@ -92,6 +98,9 @@ impl ToolAudit {
 pub struct DoctorScan {
     /// The de-duplicated tool probes, in ecosystem, task, then probe order.
     pub probes: Vec<ToolchainProbe>,
+    /// Bare task programs (`argv[0]`) no probe covers, in ecosystem then task
+    /// order. They are located on `PATH`, never run.
+    pub programs: Vec<String>,
     /// Every ecosystem's health checks, each id prefixed with its ecosystem
     /// (`js/install`).
     pub checks: Vec<EcosystemCheck>,
@@ -103,7 +112,9 @@ pub struct DoctorScan {
 /// names the toolchains this repository uses (a Bun repository audits `bun`,
 /// not `node`); every resolved task is asked for its probes under each of
 /// those toolchains. De-duplication is by `(program, args)`, so a tool many
-/// tasks share is probed once and the first label seen wins.
+/// tasks share is probed once and the first label seen wins. Each task's
+/// bare `argv[0]` that no probe already names is collected once into
+/// [`DoctorScan::programs`].
 ///
 /// # Errors
 /// Propagates configuration failures and any adapter's `doctor` or
@@ -117,11 +128,15 @@ pub fn scan(
     let mut probes = Vec::new();
     let mut checks = Vec::new();
     let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
+    let mut task_programs = Vec::new();
     for (ecosystem, adapter) in &configured {
         let scope = adapter.doctor(project_root)?;
         for (key, entry) in &adapter.common().tasks {
             let task = entry.materialize(ecosystem.as_str(), key)?;
             let intent = TaskIntent::resolve(&task.name).with_kind(task.kind);
+            if let Some(program) = task.argv.first().and_then(|first| bare_program(first)) {
+                task_programs.push(program.to_string());
+            }
             for toolchain in &scope.toolchains {
                 for probe in adapter.toolchain_probes_for(toolchain, &intent)? {
                     if seen.insert((probe.program.clone(), probe.args.clone())) {
@@ -135,14 +150,33 @@ pub fn scan(
             checks.push(check);
         }
     }
-    Ok(DoctorScan { probes, checks })
+    let covered: BTreeSet<&str> = probes.iter().map(|probe| probe.program.as_str()).collect();
+    let mut listed = BTreeSet::new();
+    let programs = task_programs
+        .into_iter()
+        .filter(|program| !covered.contains(program.as_str()) && listed.insert(program.clone()))
+        .collect();
+    Ok(DoctorScan {
+        probes,
+        programs,
+        checks,
+    })
 }
 
-/// Classify every probe by running it through `runner` in `project_root`.
+/// `argv0` when it names a program resolved through `PATH`: not a path to a
+/// repository script and not an unrendered template.
+fn bare_program(argv0: &str) -> Option<&str> {
+    let bare = !argv0.is_empty() && !argv0.contains(['/', '\\', std::path::MAIN_SEPARATOR, '{']);
+    bare.then_some(argv0)
+}
+
+/// Classify every probe by running it through `runner` in `project_root`,
+/// then every task program by locating it through `locator`.
 ///
 /// A probe that finds its program yields [`ToolStatus::Present`] (with a
 /// version when one is parseable); a spawn `NotFound` yields
-/// [`ToolStatus::Missing`].
+/// [`ToolStatus::Missing`]. A located program is present without a version;
+/// an unlocated one is missing.
 ///
 /// This is the batch form: it returns the fully-classified [`ToolAudit`] once
 /// every probe has run. Use [`audit_streaming`] to observe each outcome the
@@ -151,13 +185,14 @@ pub fn scan(
 /// # Errors
 /// Propagates any probe failure that is *not* a missing tool — a hang, a
 /// permission error, or an output overrun is a hard error, never silently
-/// reported as "missing".
+/// reported as "missing" — and any locator failure.
 pub fn audit(
     project_root: &AbsPath,
-    probes: &[ToolchainProbe],
+    found: &DoctorScan,
     runner: &dyn ToolchainProber,
+    locator: &dyn DriverLocator,
 ) -> AppResult<ToolAudit> {
-    audit_streaming(project_root, probes, runner, &mut |_| Ok(()))
+    audit_streaming(project_root, found, runner, locator, &mut |_| Ok(()))
 }
 
 /// Classify every probe, invoking `on_outcome` for each tool the instant its
@@ -169,18 +204,28 @@ pub fn audit(
 /// prints; the callback is the only seam.
 ///
 /// # Errors
-/// Propagates any non-missing probe failure and any error `on_outcome` itself
-/// returns (a failed emit aborts the audit).
+/// Propagates any non-missing probe failure, any locator failure, and any
+/// error `on_outcome` itself returns (a failed emit aborts the audit).
 pub fn audit_streaming(
     project_root: &AbsPath,
-    probes: &[ToolchainProbe],
+    found: &DoctorScan,
     runner: &dyn ToolchainProber,
+    locator: &dyn DriverLocator,
     on_outcome: &mut dyn FnMut(&ToolProbeOutcome) -> AppResult<()>,
 ) -> AppResult<ToolAudit> {
-    let mut tools = Vec::with_capacity(probes.len());
-    for probe in probes {
+    let mut tools = Vec::with_capacity(found.probes.len() + found.programs.len());
+    for probe in &found.probes {
         let status = classify(runner, probe, project_root)?;
         let outcome = ToolProbeOutcome::new(probe.label.clone(), probe.program.clone(), status);
+        on_outcome(&outcome)?;
+        tools.push(outcome);
+    }
+    for program in &found.programs {
+        let status = match locator.locate(program)? {
+            Some(_) => ToolStatus::Present { version: None },
+            None => ToolStatus::Missing,
+        };
+        let outcome = ToolProbeOutcome::new(program.clone(), program.clone(), status);
         on_outcome(&outcome)?;
         tools.push(outcome);
     }
@@ -221,7 +266,9 @@ mod tests {
         CheckVerdict, DoctorScope, EcosystemCheck, FanOut, Provider, Task, ToolchainProbe,
         ToolchainProber,
     };
-    use toven_testkit::{FakeConfiguredAdapter, FakeProvider, ScriptedToolchainProber};
+    use toven_testkit::{
+        FakeConfiguredAdapter, FakeDriverLocator, FakeProvider, ScriptedToolchainProber,
+    };
 
     use super::{DoctorScan, ToolAudit, ToolProbeOutcome, scan};
     use toven_core::config::{Document, ProjectConfig, TovenConfig};
@@ -232,8 +279,8 @@ mod tests {
         providers: &[&dyn Provider],
         prober: &dyn ToolchainProber,
     ) -> AppResult<ToolAudit> {
-        let DoctorScan { probes, .. } = scan(root, document, providers)?;
-        super::audit(root, &probes, prober)
+        let found = scan(root, document, providers)?;
+        super::audit(root, &found, prober, &FakeDriverLocator::new())
     }
 
     fn audit_streaming(
@@ -243,8 +290,8 @@ mod tests {
         prober: &dyn ToolchainProber,
         on_outcome: &mut dyn FnMut(&ToolProbeOutcome) -> AppResult<()>,
     ) -> AppResult<ToolAudit> {
-        let DoctorScan { probes, .. } = scan(root, document, providers)?;
-        super::audit_streaming(root, &probes, prober, on_outcome)
+        let found = scan(root, document, providers)?;
+        super::audit_streaming(root, &found, prober, &FakeDriverLocator::new(), on_outcome)
     }
 
     fn eid(id: &str) -> EcosystemId {
@@ -535,5 +582,82 @@ mod tests {
         assert_eq!(found.checks.len(), 1);
         assert_eq!(found.checks[0].id, "js/web/install");
         assert_eq!(found.checks[0].fix.as_deref(), Some("npm ci"));
+    }
+
+    /// A Go-like provider whose ecosystem probe is `go` and whose tasks shell
+    /// out to other tools and to repository scripts.
+    fn provider_with_task_programs() -> FakeProvider {
+        let task = |name: &str, argv: &[&str]| {
+            Task::new(
+                name,
+                argv.iter().map(|arg| (*arg).to_string()).collect(),
+                FanOut::PerModule,
+            )
+        };
+        let adapter = FakeConfiguredAdapter::new(eid("go"))
+            .with_probe(ToolchainProbe::new("go", "go", vec!["version".into()]))
+            .with_tasks(vec![
+                task("test", &["go", "test"]),
+                task("format", &["gofmt", "-w"]),
+                task("format-check", &["gofmt", "-l"]),
+                task("lint", &["golangci-lint", "run"]),
+                task("licenses", &["scripts/check-licenses.sh"]),
+                task("coverage", &["{workspace.root}/scripts/go-cover.sh"]),
+            ]);
+        FakeProvider::new(eid("go")).with_adapter(adapter)
+    }
+
+    #[test]
+    fn bare_task_programs_no_probe_covers_are_listed_once() {
+        let provider = provider_with_task_programs();
+
+        let found = scan(&root(), &document_with(&["go"]), &[&provider]).expect("scan");
+
+        assert_eq!(programs(&found), ["go"]);
+        // Scripts and templated paths are never listed; `go` is already probed.
+        assert_eq!(found.programs, ["gofmt", "golangci-lint"]);
+    }
+
+    #[test]
+    fn task_programs_are_located_without_being_run() {
+        let provider = provider_with_task_programs();
+        let providers: Vec<&dyn Provider> = vec![&provider];
+        let found = scan(&root(), &document_with(&["go"]), &providers).expect("scan");
+        let prober = ScriptedToolchainProber::new().with_version("go version go1.27");
+        let locator = FakeDriverLocator::new().with_conventional("gofmt");
+
+        let audit = super::audit(&root(), &found, &prober, &locator).expect("audit succeeds");
+
+        let statuses: Vec<_> = audit
+            .tools
+            .iter()
+            .map(|tool| (tool.program.as_str(), tool.status.clone()))
+            .collect();
+        assert_eq!(
+            statuses,
+            [
+                (
+                    "go",
+                    ToolStatus::Present {
+                        version: Some("go version go1.27".to_string())
+                    }
+                ),
+                ("gofmt", ToolStatus::Present { version: None }),
+                ("golangci-lint", ToolStatus::Missing),
+            ]
+        );
+        assert_eq!(prober.calls(), 1, "only the ecosystem probe runs");
+    }
+
+    #[test]
+    fn a_locator_failure_fails_the_audit() {
+        let provider = provider_with_task_programs();
+        let found = scan(&root(), &document_with(&["go"]), &[&provider]).expect("scan");
+        let locator = FakeDriverLocator::new().with_failing("gofmt");
+
+        let error = super::audit(&root(), &found, &ScriptedToolchainProber::new(), &locator)
+            .expect_err("an errored lookup is never reported as missing");
+
+        assert_eq!(error.code(), ErrorCode::Internal);
     }
 }

@@ -85,11 +85,12 @@ impl FsSourceDigest {
         Ok(())
     }
 
-    /// Hash a directory subtree as a stable, order-independent identity.
-    fn hash_tree(root: &Path) -> AppResult<String> {
+    /// Hash a directory subtree as a stable, order-independent identity,
+    /// leaving out every `excluded` root-relative subtree.
+    fn hash_tree(root: &Path, excluded: &[RepoPath]) -> AppResult<String> {
         // Collect files relative to the root, sorted for a stable identity independent
         // of directory-iteration order.
-        let files = collect_files(root, HASH_WALK)?;
+        let files = collect_files(root, HASH_WALK, excluded)?;
 
         let mut hasher = ContentHasher::new();
         for (relative, absolute) in &files {
@@ -108,7 +109,7 @@ impl FsSourceDigest {
     fn external_tree(&self, module: &Module, external: &str) -> AppResult<String> {
         let root = rskit_fs::path::canonicalize(&self.project_root.join(external))?;
         if root.is_dir() {
-            return Self::hash_tree(&root);
+            return Self::hash_tree(&root, &[]);
         }
         if !file::exists(&root)? {
             return Err(AppError::new(
@@ -140,7 +141,7 @@ impl SourceDigest for FsSourceDigest {
                 ),
             ));
         }
-        let tree = Self::hash_tree(&root)?;
+        let tree = Self::hash_tree(&root, &module.excluded_subtrees)?;
         if module.external_roots.is_empty() {
             return Ok(tree);
         }
@@ -161,7 +162,7 @@ impl SourceDigest for FsSourceDigest {
         // regular files, so directories are detected separately and hashed as a
         // subtree, matching the documented file-or-directory shape.
         if absolute.is_dir() {
-            return Self::hash_tree(&absolute);
+            return Self::hash_tree(&absolute, &[]);
         }
         if !file::exists(&absolute)? {
             return Ok(empty_digest());
@@ -194,7 +195,7 @@ pub fn outputs_fingerprint(project_root: &Path, outputs: &[RepoPath]) -> AppResu
         })?;
         hasher.update_framed(b"output", output.as_path().to_string_lossy().as_bytes());
         if absolute.is_dir() {
-            for (relative, path) in collect_files(&absolute, OUTPUT_WALK)? {
+            for (relative, path) in collect_files(&absolute, OUTPUT_WALK, &[])? {
                 hasher.update_framed(b"path", relative.to_string_lossy().as_bytes());
                 stamp_into(&path, &mut hasher)?;
             }
@@ -227,12 +228,23 @@ fn empty_digest() -> String {
 /// Collect every source file under `root` (ignoring `.git` and gitignored build
 /// output), keyed by its path relative to `root`.
 ///
-/// Symlinks are skipped and the walk is bounded at [`MAX_FILES`]. The returned
-/// [`BTreeMap`] is ordered by relative path, giving a stable identity that is
-/// independent of directory-iteration order.
-fn collect_files(root: &Path, walk: IgnoreWalkOptions) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
+/// Files under an `excluded` root-relative subtree are left out and do not
+/// count toward the cap. Symlinks are skipped and the walk is bounded at
+/// [`MAX_FILES`]. The returned [`BTreeMap`] is ordered by relative path, giving
+/// a stable identity that is independent of directory-iteration order.
+fn collect_files(
+    root: &Path,
+    walk: IgnoreWalkOptions,
+    excluded: &[RepoPath],
+) -> AppResult<BTreeMap<PathBuf, PathBuf>> {
     let mut files = BTreeMap::new();
     walk_tree_ignoring(root, walk, |entry| {
+        if excluded
+            .iter()
+            .any(|subtree| entry.relative_path.starts_with(subtree.as_path()))
+        {
+            return Ok(WalkControl::Continue);
+        }
         if files.len() >= MAX_FILES {
             return Err(AppError::new(
                 ErrorCode::Internal,
@@ -274,6 +286,34 @@ mod tests {
         workspace.write_file("core/lib.rs", b"fn b() {}").unwrap();
         let after = digest.module(&module("core")).unwrap();
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn excluded_subtrees_stay_out_of_the_module_digest() {
+        let workspace = TestWorkspace::new("source-digest-excluded");
+        workspace.write_file("kit/lib.go", b"package kit").unwrap();
+        workspace
+            .write_file("kit/auth/auth.go", b"package auth")
+            .unwrap();
+        workspace
+            .write_file("kit/authz/authz.go", b"package authz")
+            .unwrap();
+        let root = AbsPath::new(workspace.path()).unwrap();
+        let digest = FsSourceDigest::new(&root);
+        let mut kit = module("kit");
+        kit.excluded_subtrees = vec![RepoPath::new("auth").unwrap()];
+        let before = digest.module(&kit).unwrap();
+
+        workspace
+            .write_file("kit/auth/auth.go", b"package auth // edited")
+            .unwrap();
+        assert_eq!(before, digest.module(&kit).unwrap());
+
+        // A sibling sharing the excluded name as a text prefix is still source.
+        workspace
+            .write_file("kit/authz/authz.go", b"package authz // edited")
+            .unwrap();
+        assert_ne!(before, digest.module(&kit).unwrap());
     }
 
     #[test]

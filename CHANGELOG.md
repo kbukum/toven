@@ -14,6 +14,10 @@ All notable changes to Toven are documented here. The format is based on [Keep a
 
 ### Fixed
 
+- Editing a nested Go module no longer invalidates the cache of the module that contains its folder. Go leaves a directory with its own `go.mod` out of the parent module, and its files now stay out of the parent's source hash too. Before, one edit in a nested gokit module re-ran 58 of 59 units.
+- `toven doctor` now checks every program a task runs (such as `gofmt` or `golangci-lint`), not just each ecosystem's main tool. These programs are looked up on `PATH` without being run.
+- A mistyped task name now gets one suggestion. When a near-miss task exists, the competing "If you meant the built-in" hint is no longer added.
+
 ### Security
 
 ## [0.1.0-alpha.17] - 2026-10-23
