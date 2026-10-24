@@ -18,6 +18,7 @@
 
 use rskit_cli::ExitCode;
 use rskit_errors::{AppError, AppResult, ErrorCode};
+use toven_core::federation::resolve::PathDriverLocator;
 use toven_engine::doctor::{ToolAudit, ToolProbeOutcome, audit_streaming, scan};
 use toven_engine::health::{CheckOutcome, run_checks};
 use toven_engine::toolchain::ProcessToolchainProber;
@@ -51,9 +52,13 @@ pub(crate) fn doctor(
     // incrementally like a run rather than buffering the whole audit.
     let audited = {
         let sink = reporter.as_mut();
-        audit_streaming(&project.project_root, &found.probes, &prober, &mut |tool| {
-            emit_tool(sink, tool)
-        })?
+        audit_streaming(
+            &project.project_root,
+            &found,
+            &prober,
+            &PathDriverLocator::new(),
+            &mut |tool| emit_tool(sink, tool),
+        )?
     };
     let checks = {
         let sink = reporter.as_mut();

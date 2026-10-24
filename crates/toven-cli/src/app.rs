@@ -440,14 +440,19 @@ fn run_tasks(
 ///
 /// The predicate matches only the planner's typed missing-task error for the
 /// attempted token (its `missing_task` detail, the canonical intent name), so
-/// unrelated `InvalidInput` failures never pick up the hint.
+/// unrelated `InvalidInput` failures never pick up the hint. When the planner
+/// already suggests a near-miss task (its `suggested_task` detail), that one
+/// suggestion stands alone rather than competing with a built-in.
 fn advise_builtin_typo(task: &str, error: AppError) -> AppError {
     let wanted = intent_for(task);
-    let missing = error
-        .details()
+    let details = error.details();
+    let missing = details
         .get("missing_task")
         .and_then(serde_json::Value::as_str);
-    if error.code() != rskit_errors::ErrorCode::InvalidInput || missing != Some(wanted.name()) {
+    if error.code() != rskit_errors::ErrorCode::InvalidInput
+        || missing != Some(wanted.name())
+        || details.contains_key("suggested_task")
+    {
         return error;
     }
     let Some(reserved) = grammar::nearest_reserved(task) else {
@@ -539,6 +544,26 @@ fn intent_for(task: &str) -> TaskIntent {
 
 #[cfg(test)]
 mod tests {
+    use rskit_errors::{AppError, ErrorCode};
+
+    fn missing(task: &str) -> AppError {
+        AppError::new(ErrorCode::InvalidInput, format!("no '{task}' task."))
+            .with_detail("missing_task", task)
+    }
+
+    #[test]
+    fn a_built_in_near_miss_is_hinted_when_no_task_is_suggested() {
+        let error = super::advise_builtin_typo("modual", missing("modual"));
+        assert!(error.to_string().contains("run 'toven modules'"), "{error}");
+    }
+
+    #[test]
+    fn a_suggested_task_suppresses_the_built_in_hint() {
+        let error = missing("tset").with_detail("suggested_task", "test");
+        let error = super::advise_builtin_typo("tset", error);
+        assert!(!error.to_string().contains("built-in"), "{error}");
+    }
+
     #[test]
     fn task_help_lists_the_run_options() {
         let help = super::task_help_text("tidy");

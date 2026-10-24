@@ -17,8 +17,9 @@ use toven_model::Module;
 /// the planner stays pure and tests substitute a deterministic digest while the
 /// concrete filesystem adapter lives in the engine.
 pub trait SourceDigest {
-    /// Content identity of a module's source: the `module.root` subtree plus
-    /// every `module.external_roots` directory it builds from.
+    /// Content identity of a module's source: the `module.root` subtree,
+    /// minus every `module.excluded_subtrees` entry, plus every
+    /// `module.external_roots` directory it builds from.
     ///
     /// # Errors
     /// Propagates a backing read failure.

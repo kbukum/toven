@@ -1223,6 +1223,10 @@ fn an_unknown_task_still_errors_when_no_ecosystem_defines_it() {
         error.details().get("missing_task"),
         Some(&serde_json::Value::from("structur"))
     );
+    assert_eq!(
+        error.details().get("suggested_task"),
+        Some(&serde_json::Value::from("structure"))
+    );
 }
 
 #[test]

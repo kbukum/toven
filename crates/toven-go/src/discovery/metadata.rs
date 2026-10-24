@@ -141,6 +141,7 @@ pub(crate) fn discover(
     )?;
 
     let edges = build_edges(&modules, &by_path, &requires);
+    assign_excluded_subtrees(&mut modules)?;
 
     let mut response = DiscoverResponse::new(ecosystem);
     response.schema_version = request.schema_version;
@@ -290,6 +291,44 @@ fn external_targets(
         inputs.targets.insert(target);
     }
     Ok(inputs)
+}
+
+/// Record each module's nested module directories as excluded subtrees.
+///
+/// Go leaves a directory holding its own `go.mod` out of the enclosing module,
+/// so a nested module's files are never the parent's source. Excluding them
+/// keeps an edit in `auth/` from re-keying the root module and, through it,
+/// every consumer. Only the outermost nested root is kept (`auth` covers
+/// `auth/session/database`).
+fn assign_excluded_subtrees(modules: &mut BTreeMap<ModuleRef, Module>) -> AppResult<()> {
+    let roots: Vec<PathBuf> = modules
+        .values()
+        .map(|module| module.root.as_path().to_path_buf())
+        .collect();
+    for module in modules.values_mut() {
+        let own = module.root.as_path();
+        let nested: BTreeSet<PathBuf> = roots
+            .iter()
+            .filter_map(|root| nested_relative(own, root))
+            .collect();
+        module.excluded_subtrees = outermost(nested)
+            .iter()
+            .map(RepoPath::new)
+            .collect::<AppResult<_>>()?;
+    }
+    Ok(())
+}
+
+/// `candidate` relative to `own` when it is a distinct directory under `own`.
+fn nested_relative(own: &Path, candidate: &Path) -> Option<PathBuf> {
+    if own == Path::new(".") {
+        return (candidate != own).then(|| candidate.to_path_buf());
+    }
+    candidate
+        .strip_prefix(own)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .map(Path::to_path_buf)
 }
 
 /// Drop every directory nested under another one in the set, so a subtree is
@@ -468,7 +507,9 @@ mod tests {
 
     use toven_model::{EcosystemId, Module, ModuleRef, RepoPath};
 
-    use super::{build_edges, manifest_parent, module_name, workspace_id_for};
+    use super::{
+        assign_excluded_subtrees, build_edges, manifest_parent, module_name, workspace_id_for,
+    };
 
     fn id(name: &str) -> ModuleRef {
         ModuleRef::new(EcosystemId::new("go").unwrap(), name).unwrap()
@@ -560,5 +601,36 @@ mod tests {
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0].from.module, app);
         assert_eq!(edges[0].to.module, core);
+    }
+
+    #[test]
+    fn nested_module_directories_are_excluded_from_their_parents() {
+        let mut modules = BTreeMap::new();
+        for (name, root) in [
+            ("kit", "."),
+            ("auth", "auth"),
+            ("auth-db", "auth/session/database"),
+            ("authz", "authz"),
+        ] {
+            modules.insert(
+                id(name),
+                Module::new(id(name), RepoPath::new(root).unwrap()),
+            );
+        }
+
+        assign_excluded_subtrees(&mut modules).unwrap();
+
+        let excluded = |name: &str| -> Vec<String> {
+            modules[&id(name)]
+                .excluded_subtrees
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        };
+        assert_eq!(excluded("kit"), ["auth", "authz"]);
+        assert_eq!(excluded("auth"), ["session/database"]);
+        assert!(excluded("auth-db").is_empty());
+        // `authz` shares the `auth` prefix as text but is not nested under it.
+        assert!(excluded("authz").is_empty());
     }
 }

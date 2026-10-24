@@ -57,6 +57,14 @@ pub struct Module {
     /// control cannot see them the module is always affected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub external_roots: Vec<String>,
+    /// Subtrees under `root`, relative to it, that belong to another module
+    /// and are not part of this module's source (a nested Go module). They are
+    /// left out of this module's source identity, matching change attribution,
+    /// which already assigns them to their own module. Adapter-set only where
+    /// the build tool itself excludes them; a module whose tasks read its
+    /// whole tree keeps this empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_subtrees: Vec<RepoPath>,
     /// Whether the module's manifest forbids registry publication (an npm
     /// `"private": true` package). Adapter-set during discovery; release
     /// excludes such a module unless config sets `exclude = false`, which makes
@@ -83,6 +91,7 @@ impl Module {
             capabilities: BTreeSet::new(),
             cache_inputs_complete: true,
             external_roots: Vec::new(),
+            excluded_subtrees: Vec::new(),
             unpublishable: false,
         }
     }
@@ -129,6 +138,7 @@ mod tests {
         let json = serde_json::to_string(&module).unwrap();
         assert!(!json.contains("package"));
         assert!(!json.contains("capabilities"));
+        assert!(!json.contains("excluded_subtrees"));
         let back: Module = serde_json::from_str(&json).unwrap();
         assert_eq!(module, back);
         assert!(back.cache_inputs_complete);
