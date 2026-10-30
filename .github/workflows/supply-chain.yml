@@ -38,7 +38,7 @@ jobs:
       # (ast-grep for structure, mdbook + mdbook-mermaid for docs-build) must be
       # present for the gate to pass — the single source of truth for provisioning.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -70,7 +70,7 @@ jobs:
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
+        uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2.7.8
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.8.5
@@ -85,7 +85,7 @@ jobs:
       # `doctor`'s referenced tools (ast-grep for structure, mdbook +
       # mdbook-mermaid for docs-build) so the required-tool gate can pass.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -109,12 +109,12 @@ jobs:
           submodules: recursive
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           languages: rust
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/autobuild@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
 
       - name: Analyze
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
