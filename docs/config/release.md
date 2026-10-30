@@ -128,7 +128,7 @@ post = ["docs-build"]
 | `exclude` | boolean | `false` (`true` for `"private": true` JavaScript packages) | Never version, tag, publish, or host the module; it still raises its ranges on released in-repo dependencies |
 | `entrypoint` | `"toven"` or `"maintainer"` | `"toven"` | Who creates the tag and hosted Release |
 | `umbrella` | boolean | `false` | Mark the module as the aggregate hosted-Release representative for its train |
-| `offline` | boolean | `false` | Anchor idempotency on tags and skip registry lookups in status |
+| `offline` | boolean | `false` | Anchor idempotency on tags and skip registry lookups in planning and status |
 | `token_env` | string | None | Environment variable that holds the registry publish token; unset falls back to the tool's own credentials |
 | `visibility` | `"public"`, `"private"`, or `"internal"` | `"public"` | Intended registry exposure |
 | `readiness` | string list | `[]` | Named fail-closed preflight checks |
@@ -469,7 +469,7 @@ An umbrella-anchored default is only applied when the train declares exactly one
 
 ### Registry-failure downgrade
 
-A `registry` or `registry+umbrella` baseline consults the ecosystem registry only to raise the idempotency anchor. When that lookup fails — an offline run, a registry outage — change detection does not abort. It downgrades to the umbrella-tag (or own-tag) anchor and completes, so a transient registry problem never blocks a release plan.
+A `registry` or `registry+umbrella` baseline consults the ecosystem registry only to raise the idempotency anchor. With `offline = true` or `--offline`, planning skips that lookup and uses the umbrella-tag (or own-tag) anchor. If an online lookup fails, change detection uses the same tag anchor and completes, so a transient registry problem never blocks a release plan.
 
 ### Overriding the defaults
 
