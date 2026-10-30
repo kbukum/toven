@@ -42,7 +42,7 @@ jobs:
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
+        uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2.7.8
 
       # Single authoritative install list, aligned to `toven doctor`'s report of
       # the resolved task graph's tools (cargo, ast-grep, mdbook) plus the cargo
@@ -51,7 +51,7 @@ jobs:
       # publish-train golden scenarios). mdbook + mdbook-mermaid back the
       # command-ecosystem `docs-build` gate the `doctor` audit requires.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: cargo-nextest,ast-grep,mdbook,mdbook-mermaid
 
@@ -128,10 +128,10 @@ jobs:
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
+        uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2.7.8
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: cargo-nextest
 
