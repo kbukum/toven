@@ -1565,6 +1565,53 @@ fn offline_skips_the_registry_and_still_publishes() {
 }
 
 #[test]
+fn offline_registry_baselines_never_query_published_versions() {
+    use toven_ports::BaselineSourceConfig;
+    use toven_testkit::doubles::ReleaseCall;
+
+    for config_offline in [false, true] {
+        let mut common = common_with_registry();
+        common.release.baseline = Some(BaselineSourceConfig::Registry);
+        common.release.offline = Some(config_offline);
+        let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 5, 0)]);
+        let overrides = BumpOverrides::new().with_offline(!config_offline);
+
+        let plan = plan_core(common, target.clone(), &overrides);
+
+        assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 1, 1)));
+        assert!(plan.entries[0].publish_needed);
+        assert!(
+            !target
+                .calls()
+                .iter()
+                .any(|call| matches!(call, ReleaseCall::PublishedVersions(_))),
+            "offline planning must not query the registry: {:?}",
+            target.calls()
+        );
+    }
+}
+
+#[test]
+fn online_registry_baselines_still_anchor_on_published_versions() {
+    use toven_ports::BaselineSourceConfig;
+    use toven_testkit::doubles::ReleaseCall;
+
+    let mut common = common_with_registry();
+    common.release.baseline = Some(BaselineSourceConfig::Registry);
+    let target = FakeReleaseTarget::new().with_published_versions(vec![Version::new(0, 5, 0)]);
+
+    let plan = plan_core(common, target.clone(), &BumpOverrides::new());
+
+    assert_eq!(plan.entries[0].planned_version, Some(Version::new(0, 5, 1)));
+    assert!(
+        target
+            .calls()
+            .iter()
+            .any(|call| matches!(call, ReleaseCall::PublishedVersions(_)))
+    );
+}
+
+#[test]
 fn default_publication_policy_is_tag_only() {
     let plan = plan_core(
         CommonEcosystemConfig::default(),

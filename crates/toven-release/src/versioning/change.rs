@@ -45,7 +45,7 @@ struct MemberSnapshot {
 )]
 pub(crate) fn detect_in_order(
     context: &PlanContext,
-    base_override: Option<&str>,
+    overrides: &crate::BumpOverrides,
     readers: &MemberVcsReaders<'_>,
     targets: &ReleaseTargets,
     settings: &BTreeMap<ModuleKey, ResolvedReleaseSettings>,
@@ -115,11 +115,15 @@ pub(crate) fn detect_in_order(
         };
         let scheme = target.tag_scheme(module, resolved.tag_format.as_deref())?;
         let source = resolve_baseline_source(resolved.baseline, scheme, umbrella_scheme.as_ref())?;
+        let source = match &source {
+            BaselineSource::Registry { diff } if overrides.offline() || resolved.offline => diff,
+            source => source,
+        };
         let Some(spec) = baseline_spec(
             module,
-            base_override,
+            overrides.base(),
             &snapshot.tags,
-            &source,
+            source,
             reader.reader(),
             target,
             &mut changes.baselines,

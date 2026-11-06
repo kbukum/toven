@@ -98,7 +98,7 @@ pub(crate) fn plan_with_context(
     let mut entries = Vec::new();
     change::detect_in_order(
         context,
-        overrides.base(),
+        overrides,
         readers,
         targets,
         &settings,
