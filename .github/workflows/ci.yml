@@ -36,13 +36,13 @@ jobs:
           rustup override set "${{ matrix.rust }}"
 
       - name: Install Go toolchain
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: "1.26"
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
+        uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2.7.8
 
       # Single authoritative install list, aligned to `toven doctor`'s report of
       # the resolved task graph's tools (cargo, ast-grep, mdbook) plus the cargo
@@ -51,7 +51,7 @@ jobs:
       # publish-train golden scenarios). mdbook + mdbook-mermaid back the
       # command-ecosystem `docs-build` gate the `doctor` audit requires.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-nextest,ast-grep,mdbook,mdbook-mermaid
 
@@ -122,16 +122,16 @@ jobs:
           rustup override set "${{ matrix.rust }}"
 
       - name: Install Go toolchain
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: "1.26"
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
+        uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2.7.8
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-nextest
 
