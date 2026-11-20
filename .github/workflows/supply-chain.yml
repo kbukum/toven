@@ -38,7 +38,7 @@ jobs:
       # (ast-grep for structure, mdbook + mdbook-mermaid for docs-build) must be
       # present for the gate to pass — the single source of truth for provisioning.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -64,13 +64,13 @@ jobs:
           rustup override set 1.97
 
       - name: Install Go toolchain
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: "1.26"
           cache: false
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2.7.8
+        uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2.7.8
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.8.5
@@ -85,7 +85,7 @@ jobs:
       # `doctor`'s referenced tools (ast-grep for structure, mdbook +
       # mdbook-mermaid for docs-build) so the required-tool gate can pass.
       - name: Install task-graph tooling
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: ast-grep,mdbook,mdbook-mermaid
 
@@ -109,12 +109,12 @@ jobs:
           submodules: recursive
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: rust
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
 
       - name: Analyze
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
